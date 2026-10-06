@@ -1,0 +1,96 @@
+/* NagrikQ Unified CSS Design System Tokens */
+
+:root {
+  /* Brand Primary Palette */
+  --color-primary-900: #123B63;
+  --color-primary-800: #164B78;
+  --color-primary-700: #1769AA;
+  --color-primary-600: #1E7CC1;
+  --color-primary-500: #2B8FD3;
+  --color-primary-200: #C5E2F7;
+  --color-primary-100: #E8F3FB;
+  --color-primary-50:  #F3F9FD;
+
+  /* Saffron Accent Palette */
+  --color-accent-700: #C45A00;
+  --color-accent-600: #E06A00;
+  --color-accent-500: #F28C28;
+  --color-accent-100: #FFF0DF;
+  --color-accent-50:  #FFF8EF;
+
+  /* Semantic Colors */
+  --color-success-700: #16794C;
+  --color-success-500: #22A06B;
+  --color-success-100: #E8F7EF;
+
+  --color-warning-700: #A15C00;
+  --color-warning-500: #D88900;
+  --color-warning-100: #FFF4D6;
+
+  --color-error-700: #B42318;
+  --color-error-500: #D92D20;
+  --color-error-100: #FEECEB;
+
+  --color-info-700: #175CD3;
+  --color-info-500: #2E90FA;
+  --color-info-100: #EAF3FF;
+
+  /* Neutral Spectrum */
+  --color-neutral-950: #101828;
+  --color-neutral-900: #1D2939;
+  --color-neutral-800: #344054;
+  --color-neutral-700: #475467;
+  --color-neutral-600: #667085;
+  --color-neutral-500: #98A2B3;
+  --color-neutral-400: #D0D5DD;
+  --color-neutral-300: #E4E7EC;
+  --color-neutral-200: #F2F4F7;
+  --color-neutral-100: #F9FAFB;
+  --color-white: #FFFFFF;
+
+  /* Typography */
+  --font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', sans-serif;
+
+  /* Default Spacing Grid */
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 12px;
+  --space-lg: 16px;
+  --space-xl: 24px;
+  --space-2xl: 32px;
+  --space-3xl: 48px;
+
+  /* Radius System */
+  --radius-xs: 4px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+  --radius-full: 9999px;
+
+  /* Shadows */
+  --shadow-xs: 0 1px 2px rgba(16, 24, 40, 0.05);
+  --shadow-sm: 0 2px 6px rgba(16, 24, 40, 0.06);
+  --shadow-md: 0 8px 24px rgba(16, 24, 40, 0.08);
+  --shadow-lg: 0 16px 40px rgba(16, 24, 40, 0.10);
+}
+
+/* Modern Mode Specific Overrides */
+body.mode-modern {
+  --base-font-size: 16px;
+  --card-radius: var(--radius-lg);
+  --button-height: 44px;
+  --input-height: 44px;
+  --card-padding: 24px;
+  --layout-density: comfortable;
+}
+
+/* Simple Mode Specific Overrides */
+body.mode-simple {
+  --base-font-size: 18px;
+  --card-radius: 14px;
+  --button-height: 52px;
+  --input-height: 52px;
+  --card-padding: 28px;
+  --layout-density: spacious;
+}
