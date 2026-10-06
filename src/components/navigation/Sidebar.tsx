@@ -15,8 +15,6 @@ import {
   FileCheck,
   GitPullRequest,
   History,
-  Calendar,
-  MessageSquare,
 } from 'lucide-react';
 
 interface SidebarItem {

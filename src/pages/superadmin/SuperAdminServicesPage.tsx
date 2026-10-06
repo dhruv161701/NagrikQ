@@ -257,7 +257,7 @@ export const SuperAdminServicesPage: React.FC = () => {
           id: doc.id,
           selectedPreset: isStandard ? doc.name : 'Other / Custom Document (Specify Manually)',
           customName: isStandard ? '' : doc.name,
-          instructions: doc.instructions || doc.description || '',
+          instructions: (doc as any).instructions || doc.description || '',
           isRequired: doc.is_required ?? true,
         };
       });
@@ -694,7 +694,7 @@ export const SuperAdminServicesPage: React.FC = () => {
                         </span>
                       ))
                     ) : (
-                      <span style={{ fontSize: '11px', color: 'var(--color-neutral-400)', italic: 'true' }}>
+                      <span style={{ fontSize: '11px', color: 'var(--color-neutral-400)', fontStyle: 'italic' }}>
                         No required documents specified
                       </span>
                     )}

@@ -9,13 +9,16 @@ import {
 } from '../controllers/serviceController';
 import {
   createApplication,
-  getUserApplications,
+  getApplications,
   updateApplicationStatus,
+  updateDocumentStatus,
 } from '../controllers/applicationController';
 import {
   generateToken,
   getLiveQueue,
+  getOfficerQueueTokens,
   callNextToken,
+  updateTokenStatus,
 } from '../controllers/queueController';
 import {
   createChangeRequest,
@@ -57,17 +60,20 @@ router.get('/profile', authenticateToken, getProfile);
 router.post('/profile/onboarding', authenticateToken, updateProfile);
 router.put('/profile', authenticateToken, updateProfile);
 
-// AUTHENTICATED CITIZEN ROUTES
+// AUTHENTICATED APPLICATION & QUEUE ROUTES
 router.post('/applications', authenticateToken, createApplication);
-router.get('/applications', authenticateToken, getUserApplications);
+router.get('/applications', authenticateToken, getApplications);
+router.patch('/applications/:id/status', authenticateToken, requireRole('employee', 'admin', 'superadmin'), updateApplicationStatus);
+router.patch('/applications/documents/:docId/status', authenticateToken, requireRole('employee', 'admin', 'superadmin'), updateDocumentStatus);
+
 router.post('/queue/token', authenticateToken, generateToken);
 router.get('/queue/live', authenticateToken, getLiveQueue);
+router.get('/queue/tokens', authenticateToken, requireRole('employee', 'admin', 'superadmin'), getOfficerQueueTokens);
+router.post('/queue/next', authenticateToken, requireRole('employee', 'admin', 'superadmin'), callNextToken);
+router.patch('/queue/tokens/:id/status', authenticateToken, requireRole('employee', 'admin', 'superadmin'), updateTokenStatus);
+
 router.post('/complaints', authenticateToken, submitComplaint);
 router.get('/complaints', authenticateToken, getComplaints);
-
-// EMPLOYEE / OFFICER ROUTES
-router.post('/queue/next', authenticateToken, requireRole('employee', 'admin', 'superadmin'), callNextToken);
-router.patch('/applications/:id/status', authenticateToken, requireRole('employee', 'admin', 'superadmin'), updateApplicationStatus);
 
 // ADMIN ROUTES
 router.post('/admin/employees', authenticateToken, requireRole('admin', 'superadmin'), createEmployeeUser);

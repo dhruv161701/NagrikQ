@@ -345,15 +345,26 @@ export const AdminServicesPage: React.FC = () => {
                   </strong>
                 </div>
 
-                <Button
-                  variant="outline"
-                  size="sm"
-                  fullWidth
-                  onClick={() => handleOpenCRModal(srv.id)}
-                  icon={<Plus size={14} />}
-                >
-                  Propose Document Requirement Change
-                </Button>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => handleOpenEditModal(srv)}
+                    icon={<Edit size={14} />}
+                    style={{ flex: 1 }}
+                  >
+                    Edit
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleOpenCRModal(srv.id)}
+                    icon={<Plus size={14} />}
+                    style={{ flex: 2 }}
+                  >
+                    Propose Change
+                  </Button>
+                </div>
               </div>
             </div>
           ))}

@@ -7,7 +7,7 @@ import { StatusBadge } from '../../components/ui/StatusBadge';
 import { Modal } from '../../components/ui/Modal';
 import { Input } from '../../components/ui/Input';
 import { EmptyState } from '../../components/ui/EmptyState';
-import { FileCheck, UploadCloud, Download, Plus, File, CheckCircle2, Trash2, FolderOpen } from 'lucide-react';
+import { FileCheck, UploadCloud, Download, Plus, CheckCircle2, Trash2, FolderOpen } from 'lucide-react';
 
 interface VaultDoc {
   id: string;

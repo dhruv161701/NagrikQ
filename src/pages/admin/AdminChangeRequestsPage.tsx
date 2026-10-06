@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useData } from '../../context/DataContext';
-import { useAuth } from '../../context/AuthContext';
 import { supabase } from '../../config/supabase';
 import { Card } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
@@ -67,7 +66,6 @@ interface ChangeRequestItem {
 
 export const AdminChangeRequestsPage: React.FC = () => {
   const { services } = useData();
-  const { currentUser } = useAuth();
 
   const [changeRequests, setChangeRequests] = useState<ChangeRequestItem[]>([]);
   const [loading, setLoading] = useState(true);

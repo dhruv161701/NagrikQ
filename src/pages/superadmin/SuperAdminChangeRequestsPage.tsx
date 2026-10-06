@@ -6,7 +6,7 @@ import { Badge } from '../../components/ui/Badge';
 import { Modal } from '../../components/ui/Modal';
 import { ToastContainer } from '../../components/ui/Toast';
 import type { ToastMessage } from '../../components/ui/Toast';
-import { CheckCircle2, XCircle, Clock, AlertCircle, GitPullRequest, FileText, CheckCircle } from 'lucide-react';
+import { CheckCircle2, XCircle, GitPullRequest } from 'lucide-react';
 
 interface DBChangeRequest {
   id: string;

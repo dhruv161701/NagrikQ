@@ -6,7 +6,7 @@ import { Badge } from '../../components/ui/Badge';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { SearchBar } from '../../components/ui/SearchBar';
 import { useNavigate } from 'react-router-dom';
-import { GitPullRequest, RefreshCw, FileCheck2, Clock } from 'lucide-react';
+import { GitPullRequest, RefreshCw, FileCheck2 } from 'lucide-react';
 
 export const AdminDocRequirementsPage: React.FC = () => {
   const { services, refreshServices } = useData();
