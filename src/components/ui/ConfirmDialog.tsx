@@ -12,6 +12,7 @@ export interface ConfirmDialogProps {
   confirmText?: string;
   cancelText?: string;
   variant?: 'danger' | 'primary' | 'saffron';
+  children?: React.ReactNode;
 }
 
 export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
@@ -23,6 +24,7 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
   confirmText = 'Confirm',
   cancelText = 'Cancel',
   variant = 'danger',
+  children,
 }) => {
   return (
     <Modal isOpen={isOpen} onClose={onClose} title={title} maxWidth="480px">
@@ -33,16 +35,29 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
               padding: '10px',
               borderRadius: '50%',
               backgroundColor:
-                variant === 'danger' ? 'var(--color-error-100)' : 'var(--color-primary-100)',
-              color: variant === 'danger' ? 'var(--color-error-700)' : 'var(--color-primary-700)',
+                variant === 'danger'
+                  ? 'var(--color-error-100)'
+                  : variant === 'saffron'
+                  ? 'var(--color-saffron-100)'
+                  : 'var(--color-primary-100)',
+              color:
+                variant === 'danger'
+                  ? 'var(--color-error-700)'
+                  : variant === 'saffron'
+                  ? 'var(--color-saffron-800)'
+                  : 'var(--color-primary-700)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
+              flexShrink: 0,
             }}
           >
             <AlertTriangle size={24} />
           </div>
-          <p style={{ color: 'var(--color-neutral-700)', lineHeight: '1.6' }}>{message}</p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', flex: 1 }}>
+            <p style={{ color: 'var(--color-neutral-700)', lineHeight: '1.6', margin: 0 }}>{message}</p>
+            {children}
+          </div>
         </div>
 
         <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '8px' }}>

@@ -20,11 +20,26 @@ import {
   User,
   Phone,
   Calendar,
+  Volume2,
+  Sparkles,
 } from 'lucide-react';
 
 export const EmployeeApplicationsPage: React.FC = () => {
   const { currentUser } = useAuth();
-  const { services, applications, updateDocumentStatus, updateApplicationStatus, refreshApplications } = useData();
+  const {
+    services,
+    applications,
+    queueTokens,
+    callNextToken,
+    updateTokenStatus,
+    updateDocumentStatus,
+    updateApplicationStatus,
+    refreshApplications,
+  } = useData();
+
+  const activeCounter = (currentUser as any)?.counterNumber
+    ? `C-0${(currentUser as any).counterNumber}`
+    : 'C-04';
 
   // Officer assigned services stored per employee
   const empStorageKey = currentUser?.id ? `nagrikq_emp_services_${currentUser.id}` : 'nagrikq_emp_services_default';
@@ -62,6 +77,7 @@ export const EmployeeApplicationsPage: React.FC = () => {
   const [showServiceConfig, setShowServiceConfig] = useState(false);
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [refreshing, setRefreshing] = useState(false);
+  const [queueActionBanner, setQueueActionBanner] = useState<string>('');
 
   const handleToggleService = (serviceId: string) => {
     setSelectedServiceIds((prev) => {
@@ -134,20 +150,64 @@ export const EmployeeApplicationsPage: React.FC = () => {
 
   const [correctionNote, setCorrectionNote] = useState('');
 
-  const handleFinalStatus = () => {
+  // USER ACTION HANDLER: APPROVE, REJECT, OR REQUEST CORRECTION
+  // Automatically closes the user's turn (queue token) and calls the next waiting citizen!
+  const handleFinalStatus = async () => {
     if (!selectedApp) return;
+
+    let actionLabel = '';
+    const currentApplicantName = selectedApp.citizenName || 'Applicant';
+
     if (confirmDialog.type === 'approve') {
-      updateApplicationStatus(selectedApp.id, 'APPROVED', 'Officer verified all documents and approved application.');
+      actionLabel = 'Approved & Certificate Issued';
+      await updateApplicationStatus(selectedApp.id, 'APPROVED', 'Officer verified all documents and approved application.');
     } else if (confirmDialog.type === 'reject') {
-      updateApplicationStatus(selectedApp.id, 'REJECTED', 'Application rejected due to invalid or unverified document proofs.');
+      actionLabel = 'Rejected';
+      await updateApplicationStatus(selectedApp.id, 'REJECTED', 'Application rejected due to invalid or unverified document proofs.');
     } else if (confirmDialog.type === 'correction') {
-      updateApplicationStatus(
+      actionLabel = 'Correction Requested';
+      await updateApplicationStatus(
         selectedApp.id,
         'ACTION_REQUIRED',
         correctionNote.trim() || 'Officer requested citizen to re-upload clear and valid document proof.'
       );
     }
     setCorrectionNote('');
+    setConfirmDialog({ isOpen: false, type: 'approve' });
+
+    // 1. Close current citizen's turn (queue token)
+    const matchingTokens = queueTokens.filter(
+      (q) =>
+        (q.applicationId === selectedApp.id ||
+         q.citizenId === selectedApp.citizenId ||
+         q.counterNumber === activeCounter) &&
+        (q.status === 'IN_SERVICE' || q.status === 'CALLED' || q.status === 'WAITING')
+    );
+
+    for (const t of matchingTokens) {
+      await updateTokenStatus(t.id, 'COMPLETED');
+    }
+
+    // 2. Automatically call next citizen in queue for officer's assigned services
+    const nextToken = await callNextToken(activeCounter, selectedServiceIds);
+
+    // 3. Set announcement / notification banner
+    if (nextToken) {
+      setQueueActionBanner(
+        `Application ${actionLabel}! Closed ${currentApplicantName}'s turn. 📢 Now automatically calling NEXT: Token ${nextToken.tokenNumber} (${nextToken.serviceName}) to Counter ${activeCounter}!`
+      );
+    } else {
+      setQueueActionBanner(
+        `Application ${actionLabel}! Closed ${currentApplicantName}'s turn. No other citizens currently waiting in queue for your assigned services.`
+      );
+    }
+    setTimeout(() => setQueueActionBanner(''), 9000);
+
+    // 4. Automatically advance selected application in inbox
+    const remainingApps = visibleApplications.filter((a) => a.id !== selectedApp.id);
+    if (remainingApps.length > 0) {
+      setSelectedAppId(remainingApps[0].id);
+    }
   };
 
   const handleManualRefresh = async () => {
@@ -176,7 +236,7 @@ export const EmployeeApplicationsPage: React.FC = () => {
                 border: '1px solid var(--color-primary-200)',
               }}
             >
-              <FileCheck2 size={14} /> Verification Desk
+              <FileCheck2 size={14} /> Verification Desk • Counter {activeCounter}
             </span>
             <span style={{ fontSize: '0.85rem', color: 'var(--color-neutral-500)' }}>
               Officer: <strong>{currentUser?.name || 'Counter Staff'}</strong>
@@ -209,6 +269,30 @@ export const EmployeeApplicationsPage: React.FC = () => {
           </Button>
         </div>
       </div>
+
+      {/* Real-time Turn Closed & Next Citizen Automatic Call Banner */}
+      {queueActionBanner && (
+        <div
+          style={{
+            padding: '16px 20px',
+            borderRadius: '12px',
+            backgroundColor: 'var(--color-primary-50)',
+            border: '2px solid var(--color-primary-500)',
+            color: 'var(--color-primary-900)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '14px',
+            fontWeight: 700,
+            fontSize: '1rem',
+            boxShadow: '0 6px 16px rgba(11, 79, 108, 0.15)',
+            animation: 'fadeIn 0.25s ease-in-out',
+          }}
+        >
+          <Volume2 size={26} color="var(--color-primary-700)" style={{ flexShrink: 0 }} />
+          <div style={{ flex: 1 }}>{queueActionBanner}</div>
+          <Sparkles size={20} color="var(--color-saffron-600)" style={{ flexShrink: 0 }} />
+        </div>
+      )}
 
       {/* Service Assignment Checkboxes Accordion */}
       {showServiceConfig && (
@@ -597,7 +681,7 @@ export const EmployeeApplicationsPage: React.FC = () => {
                 )}
               </div>
 
-              {/* Application Final Decisions */}
+              {/* Application Final Decisions: Closes Turn & Automatically Calls Next Citizen */}
               <div
                 style={{
                   borderTop: '1px solid var(--color-neutral-200)',
@@ -609,30 +693,36 @@ export const EmployeeApplicationsPage: React.FC = () => {
                   gap: '12px',
                 }}
               >
-                <span style={{ fontSize: '0.85rem', color: 'var(--color-neutral-500)' }}>
-                  Final Application Assessment:
-                </span>
+                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                  <span style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--color-primary-900)' }}>
+                    Action Decision & Automatic Queue Advancement:
+                  </span>
+                  <span style={{ fontSize: '0.78rem', color: 'var(--color-neutral-500)' }}>
+                    Selecting any option below closes applicant turn and calls the next citizen automatically.
+                  </span>
+                </div>
+
                 <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
                   <Button
                     variant="danger"
                     onClick={() => setConfirmDialog({ isOpen: true, type: 'reject' })}
                     icon={<XCircle size={16} />}
                   >
-                    Reject Application
+                    Reject Application & Next
                   </Button>
                   <Button
                     variant="saffron"
                     onClick={() => setConfirmDialog({ isOpen: true, type: 'correction' })}
                     icon={<AlertTriangle size={16} />}
                   >
-                    Request Correction
+                    Request Correction & Next
                   </Button>
                   <Button
                     variant="primary"
                     onClick={() => setConfirmDialog({ isOpen: true, type: 'approve' })}
                     icon={<CheckCircle size={18} />}
                   >
-                    Approve & Issue Certificate
+                    Approve & Call Next Citizen →
                   </Button>
                 </div>
               </div>
@@ -647,34 +737,52 @@ export const EmployeeApplicationsPage: React.FC = () => {
         </div>
       )}
 
-      {/* Confirmation Dialog */}
+      {/* Confirmation Dialog with Note Input */}
       <ConfirmDialog
         isOpen={confirmDialog.isOpen}
         onClose={() => setConfirmDialog({ isOpen: false, type: 'approve' })}
         onConfirm={handleFinalStatus}
         title={
           confirmDialog.type === 'approve'
-            ? 'Approve Application & Issue Certificate?'
+            ? 'Approve Application & Call Next Citizen?'
             : confirmDialog.type === 'reject'
-            ? 'Reject Application?'
-            : 'Request Citizen Correction?'
+            ? 'Reject Application & Call Next Citizen?'
+            : 'Request Citizen Correction & Call Next Citizen?'
         }
         message={
           confirmDialog.type === 'approve'
-            ? `Are you sure you want to approve application ${selectedApp?.applicationNumber}? This will mark all checks complete.`
+            ? `Are you sure you want to approve application ${selectedApp?.applicationNumber}? This will issue certificate approval, conclude the citizen's turn, and automatically call the next citizen to Counter ${activeCounter}.`
             : confirmDialog.type === 'reject'
-            ? `Are you sure you want to reject application ${selectedApp?.applicationNumber}? The citizen will receive notice.`
+            ? `Are you sure you want to reject application ${selectedApp?.applicationNumber}? This will notify the citizen, conclude their turn, and automatically call the next waiting citizen.`
             : `Specify what document or detail the citizen needs to re-upload for ${selectedApp?.applicationNumber}:`
         }
         confirmText={
           confirmDialog.type === 'approve'
-            ? 'Confirm Approval'
+            ? 'Confirm Approval & Call Next'
             : confirmDialog.type === 'reject'
-            ? 'Confirm Rejection'
-            : 'Send Correction Notice'
+            ? 'Confirm Rejection & Call Next'
+            : 'Send Correction Notice & Call Next'
         }
         variant={confirmDialog.type === 'reject' ? 'danger' : confirmDialog.type === 'correction' ? 'saffron' : 'primary'}
-      />
+      >
+        {confirmDialog.type === 'correction' && (
+          <textarea
+            value={correctionNote}
+            onChange={(e) => setCorrectionNote(e.target.value)}
+            placeholder="e.g. Please re-upload latest financial year ITR or Mamlatdar verified stamp..."
+            rows={3}
+            style={{
+              width: '100%',
+              padding: '10px 12px',
+              borderRadius: '8px',
+              border: '1.5px solid var(--color-saffron-400)',
+              fontSize: '0.88rem',
+              fontFamily: 'inherit',
+              marginTop: '4px',
+            }}
+          />
+        )}
+      </ConfirmDialog>
     </div>
   );
 };

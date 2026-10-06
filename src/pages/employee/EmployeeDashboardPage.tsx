@@ -19,12 +19,13 @@ import {
   ArrowRight,
   Filter,
   AlertCircle,
+  AlertTriangle,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 export const EmployeeDashboardPage: React.FC = () => {
   const { currentUser } = useAuth();
-  const { services, queueTokens, applications, callNextToken, updateTokenStatus } = useData();
+  const { services, queueTokens, applications, callNextToken, updateTokenStatus, updateApplicationStatus } = useData();
   const navigate = useNavigate();
 
   const [activeCounter, setActiveCounter] = useState<string>('C-04');
@@ -149,6 +150,52 @@ export const EmployeeDashboardPage: React.FC = () => {
   const handleCompleteCurrent = async () => {
     if (currentCitizen) {
       await updateTokenStatus(currentCitizen.id, 'COMPLETED');
+      const citizenApp = applications.find(
+        (a) => a.id === currentCitizen.applicationId || (a.citizenId === currentCitizen.citizenId && (a.status === 'SUBMITTED' || a.status === 'UNDER_REVIEW'))
+      );
+      if (citizenApp) {
+        await updateApplicationStatus(citizenApp.id, 'APPROVED', `Completed and verified at Counter ${activeCounter}.`);
+      }
+      await handleCallNext();
+    }
+  };
+
+  const handleApproveAndNext = async () => {
+    if (currentCitizen) {
+      const citizenApp = applications.find(
+        (a) => a.id === currentCitizen.applicationId || (a.citizenId === currentCitizen.citizenId && (a.status === 'SUBMITTED' || a.status === 'UNDER_REVIEW'))
+      );
+      if (citizenApp) {
+        await updateApplicationStatus(citizenApp.id, 'APPROVED', `Officer verified documents and approved at Counter ${activeCounter}.`);
+      }
+      await updateTokenStatus(currentCitizen.id, 'COMPLETED');
+      await handleCallNext();
+    }
+  };
+
+  const handleCorrectionAndNext = async () => {
+    if (currentCitizen) {
+      const citizenApp = applications.find(
+        (a) => a.id === currentCitizen.applicationId || (a.citizenId === currentCitizen.citizenId && (a.status === 'SUBMITTED' || a.status === 'UNDER_REVIEW'))
+      );
+      if (citizenApp) {
+        await updateApplicationStatus(citizenApp.id, 'ACTION_REQUIRED', `Officer requested document correction at Counter ${activeCounter}.`);
+      }
+      await updateTokenStatus(currentCitizen.id, 'COMPLETED');
+      await handleCallNext();
+    }
+  };
+
+  const handleRejectAndNext = async () => {
+    if (currentCitizen) {
+      const citizenApp = applications.find(
+        (a) => a.id === currentCitizen.applicationId || (a.citizenId === currentCitizen.citizenId && (a.status === 'SUBMITTED' || a.status === 'UNDER_REVIEW'))
+      );
+      if (citizenApp) {
+        await updateApplicationStatus(citizenApp.id, 'REJECTED', `Officer rejected application proofs at Counter ${activeCounter}.`);
+      }
+      await updateTokenStatus(currentCitizen.id, 'COMPLETED');
+      await handleCallNext();
     }
   };
 
@@ -156,6 +203,7 @@ export const EmployeeDashboardPage: React.FC = () => {
     if (currentCitizen) {
       await updateTokenStatus(currentCitizen.id, 'NO_SHOW');
       setConfirmModalState({ isOpen: false, action: '' });
+      await handleCallNext();
     }
   };
 
@@ -384,31 +432,41 @@ export const EmployeeDashboardPage: React.FC = () => {
             </div>
 
             {/* Officer Action Toolbar */}
-            <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
-              <Button variant="primary" size="lg" onClick={handleCompleteCurrent} icon={<CheckCircle size={20} />}>
-                Complete Service (Finish Token)
+            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
+              <Button variant="primary" size="md" onClick={handleApproveAndNext} icon={<CheckCircle size={18} />}>
+                Approve & Call Next Citizen
+              </Button>
+              <Button variant="saffron" size="md" onClick={handleCorrectionAndNext} icon={<AlertTriangle size={18} />}>
+                Request Correction & Call Next
+              </Button>
+              <Button variant="danger" size="md" onClick={handleRejectAndNext} icon={<XCircle size={18} />}>
+                Reject & Call Next
+              </Button>
+              <Button variant="outline" size="md" onClick={handleCompleteCurrent} icon={<CheckCircle size={18} />}>
+                Finish Turn & Next
               </Button>
               <Button
-                variant="outline"
-                size="lg"
+                variant="secondary"
+                size="md"
                 onClick={handleAnnounceSpeaker}
-                icon={<Volume2 size={20} />}
+                icon={<Volume2 size={18} />}
               >
                 Call Announcement Again 🔊
               </Button>
               <Button
-                variant="danger"
-                size="lg"
+                variant="outline"
+                size="md"
                 onClick={() => setConfirmModalState({ isOpen: true, action: 'skip' })}
-                icon={<XCircle size={20} />}
+                icon={<XCircle size={18} />}
+                style={{ color: 'var(--color-red-600)' }}
               >
-                Skip / No Show
+                Skip / No Show & Next
               </Button>
               <Button
                 variant="secondary"
-                size="lg"
+                size="md"
                 onClick={() => navigate('/employee/applications')}
-                icon={<ShieldCheck size={20} />}
+                icon={<ShieldCheck size={18} />}
               >
                 Verify Documents
               </Button>

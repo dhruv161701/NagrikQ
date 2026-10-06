@@ -202,18 +202,24 @@ export const EmployeeQueuePage: React.FC = () => {
               <Button
                 variant="primary"
                 size="sm"
-                onClick={() => updateTokenStatus(row.id, 'COMPLETED')}
+                onClick={async () => {
+                  await updateTokenStatus(row.id, 'COMPLETED');
+                  await handleCallNext();
+                }}
                 icon={<CheckCircle size={13} />}
               >
-                Complete
+                Complete & Call Next
               </Button>
               <Button
                 variant="danger"
                 size="sm"
-                onClick={() => updateTokenStatus(row.id, 'NO_SHOW')}
+                onClick={async () => {
+                  await updateTokenStatus(row.id, 'NO_SHOW');
+                  await handleCallNext();
+                }}
                 icon={<XCircle size={13} />}
               >
-                No Show
+                No Show & Next
               </Button>
             </>
           )}
