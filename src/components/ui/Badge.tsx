@@ -15,33 +15,37 @@ export const Badge: React.FC<BadgeProps> = ({
   style,
   className,
 }) => {
-  let bg = 'var(--color-neutral-200)';
-  let color = 'var(--color-neutral-800)';
+  let bg = 'var(--color-border-subtle)';
+  let color = 'var(--color-text-primary)';
 
   switch (variant) {
     case 'blue':
     case 'info':
-      bg = 'var(--color-info-100)';
-      color = 'var(--color-info-700)';
+      bg = 'var(--color-border-subtle)';
+      color = 'var(--color-text-primary)';
       break;
     case 'green':
     case 'success':
       bg = 'var(--color-success-100)';
-      color = 'var(--color-success-700)';
+      color = 'var(--color-success-600)';
       break;
     case 'orange':
     case 'warning':
       bg = 'var(--color-warning-100)';
-      color = 'var(--color-warning-700)';
+      color = 'var(--color-warning-600)';
       break;
     case 'red':
     case 'danger':
       bg = 'var(--color-error-100)';
-      color = 'var(--color-error-700)';
+      color = 'var(--color-error-600)';
       break;
     case 'purple':
-      bg = '#F3E8FF';
-      color = '#6B21A8';
+      bg = 'rgba(104, 74, 107, 0.12)';
+      color = '#684A6B';
+      break;
+    case 'neutral':
+      bg = 'var(--color-border-subtle)';
+      color = 'var(--color-text-secondary)';
       break;
   }
 
@@ -58,6 +62,7 @@ export const Badge: React.FC<BadgeProps> = ({
         backgroundColor: bg,
         color: color,
         whiteSpace: 'nowrap',
+        border: '1px solid rgba(0,0,0,0.04)',
         ...style,
       }}
     >

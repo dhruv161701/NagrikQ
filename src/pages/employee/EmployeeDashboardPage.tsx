@@ -237,7 +237,7 @@ export const EmployeeDashboardPage: React.FC = () => {
               COUNTER {activeCounter}
             </span>
             <span style={{ fontSize: '0.85rem', color: '#86EFAC', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px' }}>
-              <span style={{ height: '8px', width: '8px', borderRadius: '50%', backgroundColor: '#22C55E' }} />
+              <span style={{ height: '8px', width: '8px', borderRadius: '50%', backgroundColor: 'var(--color-secondary)' }} />
               {isQueuePaused ? 'QUEUE PAUSED' : 'COUNTER ACTIVE'}
             </span>
           </div>
@@ -265,7 +265,7 @@ export const EmployeeDashboardPage: React.FC = () => {
           </div>
           <div style={{ textAlign: 'center', backgroundColor: 'rgba(255,255,255,0.08)', padding: '10px 18px', borderRadius: '12px' }}>
             <span style={{ fontSize: '0.8rem', opacity: 0.8 }}>Pending Apps</span>
-            <div style={{ fontSize: '1.8rem', fontWeight: 800, color: '#93C5FD' }}>
+            <div style={{ fontSize: '1.8rem', fontWeight: 800, color: 'var(--color-border)' }}>
               {pendingAppsCount}
             </div>
           </div>
@@ -275,8 +275,8 @@ export const EmployeeDashboardPage: React.FC = () => {
       {/* SERVICE DESK SPECIALIZATION CHECKBOXES */}
       <Card
         style={{
-          border: '1.5px solid var(--color-primary-300)',
-          backgroundColor: 'var(--color-primary-50)',
+          border: '1px solid var(--color-border)',
+          backgroundColor: 'var(--color-bg-card)',
           display: 'flex',
           flexDirection: 'column',
           gap: '16px',

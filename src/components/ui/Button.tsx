@@ -50,43 +50,40 @@ export const Button: React.FC<ButtonProps> = ({
 
   switch (variant) {
     case 'primary':
-      variantStyles = {
-        backgroundColor: 'var(--color-primary-700)',
-        color: 'var(--color-white)',
-        boxShadow: 'var(--shadow-xs)',
-      };
-      break;
     case 'saffron':
       variantStyles = {
-        backgroundColor: 'var(--color-accent-600)',
-        color: 'var(--color-white)',
+        backgroundColor: 'var(--color-primary)',
+        color: '#FFFFFF',
+        borderColor: 'var(--color-primary)',
         boxShadow: 'var(--shadow-xs)',
       };
       break;
     case 'secondary':
       variantStyles = {
-        backgroundColor: 'var(--color-neutral-100)',
-        color: 'var(--color-neutral-800)',
-        borderColor: 'var(--color-neutral-300)',
+        backgroundColor: 'var(--color-secondary)',
+        color: '#FFFFFF',
+        borderColor: 'var(--color-secondary)',
+        boxShadow: 'var(--shadow-xs)',
       };
       break;
     case 'outline':
       variantStyles = {
         backgroundColor: 'transparent',
-        color: 'var(--color-primary-700)',
-        borderColor: 'var(--color-primary-700)',
+        color: 'var(--color-neutral)',
+        borderColor: 'var(--color-neutral)',
       };
       break;
     case 'tertiary':
       variantStyles = {
         backgroundColor: 'transparent',
-        color: 'var(--color-primary-700)',
+        color: 'var(--color-primary)',
       };
       break;
     case 'danger':
       variantStyles = {
-        backgroundColor: 'var(--color-error-500)',
-        color: 'var(--color-white)',
+        backgroundColor: 'var(--color-error)',
+        color: '#FFFFFF',
+        borderColor: 'var(--color-error)',
       };
       break;
   }

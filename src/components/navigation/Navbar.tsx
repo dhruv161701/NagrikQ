@@ -19,8 +19,8 @@ export const Navbar: React.FC = () => {
   return (
     <header
       style={{
-        backgroundColor: 'var(--color-white)',
-        borderBottom: '1px solid var(--color-neutral-200)',
+        backgroundColor: 'var(--color-bg-card)',
+        borderBottom: '1px solid var(--color-border)',
         position: 'sticky',
         top: 0,
         zIndex: 1000,
@@ -45,8 +45,8 @@ export const Navbar: React.FC = () => {
               width: '40px',
               height: '40px',
               borderRadius: '10px',
-              backgroundColor: 'var(--color-primary-900)',
-              color: 'var(--color-accent-500)',
+              backgroundColor: 'var(--color-neutral)',
+              color: 'var(--color-primary)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -59,14 +59,14 @@ export const Navbar: React.FC = () => {
           </div>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-              <span style={{ fontSize: '1.4rem', fontWeight: 800, color: 'var(--color-primary-900)', letterSpacing: '-0.5px' }}>
-                Nagrik<span style={{ color: 'var(--color-accent-600)' }}>Q</span>
+              <span style={{ fontSize: '1.4rem', fontWeight: 800, color: 'var(--color-text-primary)', letterSpacing: '-0.5px', fontFamily: 'var(--font-heading)' }}>
+                Nagrik<span style={{ color: 'var(--color-primary)' }}>Q</span>
               </span>
-              <span style={{ fontSize: '0.65rem', backgroundColor: 'var(--color-primary-100)', color: 'var(--color-primary-700)', padding: '2px 6px', borderRadius: '4px', fontWeight: 700 }}>
+              <span style={{ fontSize: '0.65rem', backgroundColor: 'rgba(199, 119, 32, 0.12)', color: 'var(--color-primary)', padding: '2px 6px', borderRadius: '4px', fontWeight: 700 }}>
                 GOVT DIGITAL SEVA
               </span>
             </div>
-            <span style={{ fontSize: '0.7rem', color: 'var(--color-neutral-600)' }}>
+            <span style={{ fontSize: '0.7rem', color: 'var(--color-text-secondary)' }}>
               Queue-Free Public Services
             </span>
           </div>
@@ -75,16 +75,16 @@ export const Navbar: React.FC = () => {
         {/* Navigation Links for Public View */}
         {isPublicPage && (
           <nav style={{ display: 'flex', alignItems: 'center', gap: '28px', fontSize: '0.95rem', fontWeight: 600 }}>
-            <Link to="/services" style={{ color: 'var(--color-neutral-700)', transition: 'color 0.15s' }}>
+            <Link to="/services" style={{ color: 'var(--color-text-secondary)', transition: 'color 0.15s' }}>
               Services
             </Link>
-            <a href="#how-it-works" style={{ color: 'var(--color-neutral-700)' }}>
+            <a href="#how-it-works" style={{ color: 'var(--color-text-secondary)' }}>
               How It Works
             </a>
-            <a href="#ai-assistant" style={{ color: 'var(--color-neutral-700)' }}>
+            <a href="#ai-assistant" style={{ color: 'var(--color-text-secondary)' }}>
               AI Assistant
             </a>
-            <a href="#help" style={{ color: 'var(--color-neutral-700)' }}>
+            <a href="#help" style={{ color: 'var(--color-text-secondary)' }}>
               Help
             </a>
           </nav>
@@ -101,16 +101,16 @@ export const Navbar: React.FC = () => {
               gap: '6px',
               padding: '6px 12px',
               borderRadius: 'var(--radius-full)',
-              border: '1px solid var(--color-neutral-300)',
-              backgroundColor: 'var(--color-neutral-100)',
+              border: '1px solid var(--color-border)',
+              backgroundColor: 'var(--color-bg-page)',
               cursor: 'pointer',
               fontSize: '0.85rem',
               fontWeight: 700,
-              color: 'var(--color-neutral-800)',
+              color: 'var(--color-text-primary)',
             }}
             title="Toggle between Modern & Simple interface mode"
           >
-            <Layers size={14} style={{ color: 'var(--color-primary-700)' }} />
+            <Layers size={14} style={{ color: 'var(--color-primary)' }} />
             {uiMode === 'modern' ? '⚡ Modern Mode' : '🧓 Simple Mode'}
           </button>
 

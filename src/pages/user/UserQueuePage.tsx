@@ -55,7 +55,7 @@ export const UserQueuePage: React.FC = () => {
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div>
-                <span style={{ fontSize: '0.85rem', color: '#93C5FD', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '1px' }}>
+                <span style={{ fontSize: '0.85rem', color: 'var(--color-primary-600)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '1px' }}>
                   ACTIVE TOKEN • COUNTER {activeToken.counterNumber}
                 </span>
                 <h2 style={{ fontSize: isSimple ? '2rem' : '1.6rem', color: 'white', marginTop: '4px' }}>
@@ -94,7 +94,7 @@ export const UserQueuePage: React.FC = () => {
               </div>
               <div>
                 <span style={{ fontSize: '0.85rem', opacity: 0.8 }}>People Ahead</span>
-                <div style={{ fontSize: isSimple ? '3rem' : '2.5rem', fontWeight: 900, color: '#93C5FD' }}>
+                <div style={{ fontSize: isSimple ? '3rem' : '2.5rem', fontWeight: 900, color: 'var(--color-border)' }}>
                   {activeToken.peopleAhead}
                 </div>
               </div>

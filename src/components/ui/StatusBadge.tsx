@@ -13,7 +13,7 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({ status }) => {
   switch (status) {
     case 'SUBMITTED':
       label = 'Submitted';
-      variant = 'blue';
+      variant = 'neutral';
       break;
     case 'UNDER_REVIEW':
       label = 'Under Review';
@@ -38,7 +38,7 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({ status }) => {
 
     case 'WAITING':
       label = 'Waiting in Queue';
-      variant = 'blue';
+      variant = 'orange';
       break;
     case 'CALLED':
       label = 'Called to Counter';
@@ -46,7 +46,7 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({ status }) => {
       break;
     case 'CHECKED_IN':
       label = 'Checked In';
-      variant = 'blue';
+      variant = 'neutral';
       break;
     case 'IN_SERVICE':
       label = 'Being Served';

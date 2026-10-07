@@ -124,7 +124,7 @@ export const QueueVisualizer: React.FC = () => {
         </div>
         <div>
           <span style={{ fontSize: '0.85rem', opacity: 0.8 }}>People Ahead</span>
-          <div style={{ fontSize: '2.2rem', fontWeight: 800, color: '#93C5FD', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
+          <div style={{ fontSize: '2.2rem', fontWeight: 800, color: 'var(--color-border)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
             <Users size={24} /> 6
           </div>
         </div>

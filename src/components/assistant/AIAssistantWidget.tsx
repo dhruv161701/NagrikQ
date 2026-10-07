@@ -114,7 +114,7 @@ export const AIAssistantWidget: React.FC<AIAssistantWidgetProps> = ({ initialCon
             <h4 style={{ color: 'white', margin: 0, fontSize: isSimple ? '1.2rem' : '1rem' }}>
               NagrikQ AI Citizen Assistant {initialContextService ? `(${initialContextService})` : ''}
             </h4>
-            <span style={{ fontSize: '0.78rem', color: '#93C5FD', display: 'flex', alignItems: 'center', gap: '4px' }}>
+            <span style={{ fontSize: '0.78rem', color: 'var(--color-border)', display: 'flex', alignItems: 'center', gap: '4px' }}>
               <Sparkles size={12} /> Powered by RAG + Gemini AI (Interface Ready)
             </span>
           </div>

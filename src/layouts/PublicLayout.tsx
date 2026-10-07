@@ -6,7 +6,7 @@ import { AdaptiveOnboardingModal } from '../components/onboarding/AdaptiveOnboar
 
 export const PublicLayout: React.FC = () => {
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', backgroundColor: 'var(--color-neutral-100)' }}>
+    <div className="panel-public" style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', backgroundColor: 'var(--color-bg-page)' }}>
       <Navbar />
       <main style={{ flex: 1 }}>
         <Outlet />

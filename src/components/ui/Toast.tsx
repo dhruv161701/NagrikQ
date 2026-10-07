@@ -45,31 +45,31 @@ const ToastItem: React.FC<{ toast: ToastMessage; onDismiss: (id: string) => void
   }, [toast.id, onDismiss]);
 
   const bgColors = {
-    success: '#ECFDF5',
+    success: '#F2F7F3',
     error: '#FEF2F2',
-    info: '#EFF6FF',
-    warning: '#FFFBEB',
+    info: '#F7F3E8',
+    warning: '#FDF8F2',
   };
 
   const borderColors = {
-    success: '#10B981',
-    error: '#EF4444',
-    info: '#3B82F6',
-    warning: '#F59E0B',
+    success: '#3F5F45',
+    error: '#B91C1C',
+    info: '#171717',
+    warning: '#C77720',
   };
 
   const textColors = {
-    success: '#065F46',
-    error: '#991B1B',
-    info: '#1E40AF',
-    warning: '#92400E',
+    success: '#3F5F45',
+    error: '#B91C1C',
+    info: '#171717',
+    warning: '#C77720',
   };
 
   const icons = {
-    success: <CheckCircle size={20} style={{ color: '#10B981', flexShrink: 0 }} />,
-    error: <AlertCircle size={20} style={{ color: '#EF4444', flexShrink: 0 }} />,
-    info: <Info size={20} style={{ color: '#3B82F6', flexShrink: 0 }} />,
-    warning: <AlertTriangle size={20} style={{ color: '#F59E0B', flexShrink: 0 }} />,
+    success: <CheckCircle size={20} style={{ color: '#3F5F45', flexShrink: 0 }} />,
+    error: <AlertCircle size={20} style={{ color: '#B91C1C', flexShrink: 0 }} />,
+    info: <Info size={20} style={{ color: '#171717', flexShrink: 0 }} />,
+    warning: <AlertTriangle size={20} style={{ color: '#C77720', flexShrink: 0 }} />,
   };
 
   return (

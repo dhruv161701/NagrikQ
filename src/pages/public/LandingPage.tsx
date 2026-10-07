@@ -32,10 +32,9 @@ export const LandingPage: React.FC = () => {
       {/* HERO SECTION */}
       <section
         style={{
-          backgroundColor: 'var(--color-white)',
-          borderBottom: '1px solid var(--color-neutral-200)',
+          backgroundColor: 'var(--color-bg-page)',
+          borderBottom: '1px solid var(--color-border)',
           padding: isSimple ? '60px 24px 80px' : '80px 24px 100px',
-          background: 'linear-gradient(180deg, #F3F9FD 0%, #FFFFFF 100%)',
         }}
       >
         <div
@@ -170,7 +169,7 @@ export const LandingPage: React.FC = () => {
       </section>
 
       {/* HOW NAGRIKQ WORKS (6 STEPS) */}
-      <section id="how-it-works" style={{ backgroundColor: 'var(--color-white)', padding: '80px 24px', borderTop: '1px solid var(--color-neutral-200)', borderBottom: '1px solid var(--color-neutral-200)' }}>
+      <section id="how-it-works" style={{ backgroundColor: 'var(--color-bg-card)', padding: '80px 24px', borderTop: '1px solid var(--color-border)', borderBottom: '1px solid var(--color-border)' }}>
         <div style={{ maxWidth: '1280px', margin: '0 auto' }}>
           <div style={{ textAlign: 'center', maxWidth: '640px', margin: '0 auto 48px' }}>
             <span style={{ color: 'var(--color-accent-600)', fontWeight: 700, fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '1px' }}>
@@ -193,8 +192,8 @@ export const LandingPage: React.FC = () => {
               <div
                 key={item.step}
                 style={{
-                  backgroundColor: 'var(--color-neutral-100)',
-                  border: '1px solid var(--color-neutral-200)',
+                  backgroundColor: 'var(--color-bg-page)',
+                  border: '1px solid var(--color-border)',
                   borderRadius: '16px',
                   padding: '24px 16px',
                   textAlign: 'center',
@@ -261,7 +260,7 @@ export const LandingPage: React.FC = () => {
       </section>
 
       {/* WHY NAGRIKQ */}
-      <section style={{ backgroundColor: 'var(--color-white)', padding: '80px 24px' }}>
+      <section style={{ backgroundColor: 'var(--color-bg-card)', padding: '80px 24px', borderTop: '1px solid var(--color-border)', borderBottom: '1px solid var(--color-border)' }}>
         <div style={{ maxWidth: '1280px', margin: '0 auto' }}>
           <div style={{ textAlign: 'center', maxWidth: '600px', margin: '0 auto 48px' }}>
             <h2 style={{ fontSize: isSimple ? '2.4rem' : '2rem', color: 'var(--color-primary-900)' }}>
@@ -283,8 +282,8 @@ export const LandingPage: React.FC = () => {
                 style={{
                   padding: '24px',
                   borderRadius: '16px',
-                  border: '1px solid var(--color-neutral-200)',
-                  backgroundColor: 'var(--color-neutral-50)',
+                  border: '1px solid var(--color-border)',
+                  backgroundColor: 'var(--color-bg-page)',
                   display: 'flex',
                   flexDirection: 'column',
                   gap: '12px',
@@ -309,8 +308,8 @@ export const LandingPage: React.FC = () => {
             <div
               key={l.code}
               style={{
-                backgroundColor: 'var(--color-white)',
-                border: '1px solid var(--color-neutral-300)',
+                backgroundColor: 'var(--color-bg-card)',
+                border: '1px solid var(--color-border)',
                 padding: '16px 28px',
                 borderRadius: '14px',
                 display: 'flex',

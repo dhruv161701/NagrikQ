@@ -56,16 +56,16 @@ export const SuperAdminDashboardPage: React.FC = () => {
 
       {/* PENDING CHANGE REQUEST REVIEW BANNER */}
       {pendingRequests.length > 0 && (
-        <Card style={{ border: '2px solid #6B21A8', backgroundColor: '#FAF5FF', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
+        <Card style={{ border: '2px solid var(--color-primary-700)', backgroundColor: 'var(--color-primary-50)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#6B21A8', fontWeight: 700 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--color-primary-700)', fontWeight: 700 }}>
               <GitPullRequest size={20} /> Action Required: {pendingRequests.length} Change Request Pending Approval
             </div>
             <p style={{ fontSize: '0.9rem', color: 'var(--color-neutral-700)', marginTop: '4px' }}>
               Admin {pendingRequests[0]?.requestedByAdminName} has proposed adding <strong>"{pendingRequests[0]?.addedDocumentName}"</strong> to {pendingRequests[0]?.serviceName} requirements.
             </p>
           </div>
-          <Button variant="primary" style={{ backgroundColor: '#6B21A8', borderColor: '#6B21A8' }} onClick={() => navigate('/super-admin/change-requests')} icon={<ArrowRight size={18} />}>
+          <Button variant="primary" onClick={() => navigate('/super-admin/change-requests')} icon={<ArrowRight size={18} />}>
             Review & Make Approval Decision →
           </Button>
         </Card>

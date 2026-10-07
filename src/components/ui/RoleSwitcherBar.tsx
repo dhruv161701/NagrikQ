@@ -33,8 +33,8 @@ export const RoleSwitcherBar: React.FC = () => {
   return (
     <div
       style={{
-        backgroundColor: 'var(--color-neutral-950)',
-        color: 'var(--color-white)',
+        backgroundColor: 'var(--color-neutral)',
+        color: '#FFFFFF',
         padding: '6px 16px',
         fontSize: '0.85rem',
         display: 'flex',
@@ -48,7 +48,7 @@ export const RoleSwitcherBar: React.FC = () => {
     >
       {/* Role Selector */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-        <span style={{ color: 'var(--color-accent-500)', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px' }}>
+        <span style={{ color: 'var(--color-primary)', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px' }}>
           <Sparkles size={14} /> DEMO PERSONA:
         </span>
         <div style={{ display: 'flex', gap: '4px' }}>
@@ -58,7 +58,7 @@ export const RoleSwitcherBar: React.FC = () => {
               padding: '4px 10px',
               borderRadius: '6px',
               border: 'none',
-              background: activeRole === 'citizen' ? 'var(--color-primary-700)' : 'rgba(255,255,255,0.1)',
+              background: activeRole === 'citizen' ? 'var(--color-primary)' : 'rgba(255,255,255,0.1)',
               color: 'white',
               cursor: 'pointer',
               fontWeight: activeRole === 'citizen' ? 700 : 400,
@@ -76,7 +76,7 @@ export const RoleSwitcherBar: React.FC = () => {
               padding: '4px 10px',
               borderRadius: '6px',
               border: 'none',
-              background: activeRole === 'employee' ? 'var(--color-primary-700)' : 'rgba(255,255,255,0.1)',
+              background: activeRole === 'employee' ? 'var(--color-primary)' : 'rgba(255,255,255,0.1)',
               color: 'white',
               cursor: 'pointer',
               fontWeight: activeRole === 'employee' ? 700 : 400,
@@ -94,7 +94,7 @@ export const RoleSwitcherBar: React.FC = () => {
               padding: '4px 10px',
               borderRadius: '6px',
               border: 'none',
-              background: activeRole === 'admin' ? 'var(--color-primary-700)' : 'rgba(255,255,255,0.1)',
+              background: activeRole === 'admin' ? 'var(--color-primary)' : 'rgba(255,255,255,0.1)',
               color: 'white',
               cursor: 'pointer',
               fontWeight: activeRole === 'admin' ? 700 : 400,
@@ -112,7 +112,7 @@ export const RoleSwitcherBar: React.FC = () => {
               padding: '4px 10px',
               borderRadius: '6px',
               border: 'none',
-              background: activeRole === 'superadmin' ? 'var(--color-primary-700)' : 'rgba(255,255,255,0.1)',
+              background: activeRole === 'superadmin' ? 'var(--color-primary)' : 'rgba(255,255,255,0.1)',
               color: 'white',
               cursor: 'pointer',
               fontWeight: activeRole === 'superadmin' ? 700 : 400,
@@ -138,7 +138,7 @@ export const RoleSwitcherBar: React.FC = () => {
               padding: '3px 8px',
               borderRadius: '6px',
               border: 'none',
-              background: uiMode === 'modern' ? 'var(--color-accent-600)' : 'transparent',
+              background: uiMode === 'modern' ? 'var(--color-primary)' : 'transparent',
               color: 'white',
               fontWeight: uiMode === 'modern' ? 700 : 400,
               fontSize: '0.75rem',
@@ -156,7 +156,7 @@ export const RoleSwitcherBar: React.FC = () => {
               padding: '3px 8px',
               borderRadius: '6px',
               border: 'none',
-              background: uiMode === 'simple' ? 'var(--color-accent-600)' : 'transparent',
+              background: uiMode === 'simple' ? 'var(--color-primary)' : 'transparent',
               color: 'white',
               fontWeight: uiMode === 'simple' ? 700 : 400,
               fontSize: '0.75rem',
@@ -169,7 +169,7 @@ export const RoleSwitcherBar: React.FC = () => {
 
         {/* Language Selector */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-          <Globe size={14} style={{ color: 'var(--color-primary-500)' }} />
+          <Globe size={14} style={{ color: 'var(--color-primary)' }} />
           <select
             value={language}
             onChange={(e) => setLanguage(e.target.value as any)}

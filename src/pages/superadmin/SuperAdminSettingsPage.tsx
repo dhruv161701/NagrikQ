@@ -36,7 +36,7 @@ export const SuperAdminSettingsPage: React.FC = () => {
         <Card style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 700, fontSize: '1.1rem', color: 'var(--color-neutral-900)' }}>
-              <Cpu size={20} style={{ color: '#6B21A8' }} /> Gemini AI & pgvector RAG Pipeline
+              <Cpu size={20} style={{ color: 'var(--color-primary-700)' }} /> Gemini AI & pgvector RAG Pipeline
             </div>
             <Badge variant="purple">UI Interface Ready</Badge>
           </div>

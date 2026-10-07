@@ -73,8 +73,8 @@ export const Sidebar: React.FC = () => {
     <aside
       style={{
         width: '248px',
-        backgroundColor: 'var(--color-white)',
-        borderRight: '1px solid var(--color-neutral-200)',
+        backgroundColor: 'var(--color-bg-card)',
+        borderRight: '1px solid var(--color-border)',
         display: 'flex',
         flexDirection: 'column',
         justifyContent: 'space-between',
@@ -84,13 +84,13 @@ export const Sidebar: React.FC = () => {
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
         {/* User Persona Header */}
-        <div style={{ padding: '12px', borderRadius: '12px', backgroundColor: 'var(--color-neutral-100)', display: 'flex', gap: '10px', alignItems: 'center' }}>
+        <div style={{ padding: '12px', borderRadius: '12px', backgroundColor: 'var(--color-bg-page)', border: '1px solid var(--color-border-subtle)', display: 'flex', gap: '10px', alignItems: 'center' }}>
           <div
             style={{
               width: '36px',
               height: '36px',
               borderRadius: '50%',
-              backgroundColor: 'var(--color-primary-700)',
+              backgroundColor: 'var(--color-role-accent)',
               color: 'white',
               display: 'flex',
               alignItems: 'center',
@@ -102,10 +102,10 @@ export const Sidebar: React.FC = () => {
             {currentUser?.name ? currentUser.name[0] : 'U'}
           </div>
           <div style={{ overflow: 'hidden' }}>
-            <div style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--color-neutral-900)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            <div style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--color-text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
               {currentUser?.name || 'Nagrik User'}
             </div>
-            <span style={{ fontSize: '0.75rem', color: 'var(--color-primary-700)', fontWeight: 600, textTransform: 'capitalize' }}>
+            <span style={{ fontSize: '0.75rem', color: 'var(--color-role-accent)', fontWeight: 600, textTransform: 'capitalize' }}>
               {activeRole} Role
             </span>
           </div>
@@ -125,8 +125,8 @@ export const Sidebar: React.FC = () => {
                 borderRadius: '10px',
                 fontSize: isSimple ? '1.05rem' : '0.92rem',
                 fontWeight: isActive ? 700 : 500,
-                color: isActive ? 'var(--color-primary-700)' : 'var(--color-neutral-700)',
-                backgroundColor: isActive ? 'var(--color-primary-50)' : 'transparent',
+                color: isActive ? 'var(--color-role-accent)' : 'var(--color-text-secondary)',
+                backgroundColor: isActive ? 'var(--color-role-accent-soft)' : 'transparent',
                 transition: 'all 0.15s ease',
               })}
             >
@@ -138,9 +138,9 @@ export const Sidebar: React.FC = () => {
       </div>
 
       {/* System Status footer */}
-      <div style={{ padding: '12px', borderRadius: '10px', backgroundColor: 'var(--color-neutral-50)', border: '1px solid var(--color-neutral-200)', fontSize: '0.75rem', color: 'var(--color-neutral-600)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 700, color: 'var(--color-success-700)' }}>
-          <span style={{ height: '8px', width: '8px', borderRadius: '50%', backgroundColor: 'var(--color-success-500)' }} />
+      <div style={{ padding: '12px', borderRadius: '10px', backgroundColor: 'var(--color-bg-page)', border: '1px solid var(--color-border)', fontSize: '0.75rem', color: 'var(--color-text-secondary)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 700, color: 'var(--color-secondary)' }}>
+          <span style={{ height: '8px', width: '8px', borderRadius: '50%', backgroundColor: 'var(--color-secondary)' }} />
           NagrikQ Realtime Engine
         </div>
         <span style={{ marginTop: '2px', display: 'block' }}>Department of Digital Governance</span>

@@ -535,8 +535,8 @@ export const EmployeeApplicationsPage: React.FC = () => {
                     <span
                       style={{
                         padding: '4px 12px',
-                        backgroundColor: '#e0f2fe',
-                        color: '#0369a1',
+                        backgroundColor: 'var(--color-border-subtle)',
+                        color: 'var(--color-text-primary)',
                         borderRadius: '8px',
                         fontWeight: 800,
                         fontSize: '0.85rem',
@@ -676,19 +676,19 @@ export const EmployeeApplicationsPage: React.FC = () => {
                         borderRadius: '10px',
                         border: `1.5px solid ${
                           doc.status === 'VERIFIED'
-                            ? 'var(--color-green-300)'
+                            ? 'var(--color-success-500)'
                             : doc.status === 'REJECTED'
-                            ? 'var(--color-red-300)'
+                            ? 'var(--color-error-500)'
                             : doc.status === 'NEEDS_CORRECTION'
-                            ? 'var(--color-saffron-300)'
-                            : 'var(--color-neutral-200)'
+                            ? 'var(--color-warning-500)'
+                            : 'var(--color-border)'
                         }`,
                         backgroundColor:
                           doc.status === 'VERIFIED'
-                            ? 'var(--color-green-50)'
+                            ? 'var(--color-success-50)'
                             : doc.status === 'REJECTED'
-                            ? '#fff5f5'
-                            : 'var(--color-neutral-50)',
+                            ? 'var(--color-error-50)'
+                            : 'var(--color-bg-page)',
                         display: 'flex',
                         flexDirection: 'column',
                         gap: '12px',

@@ -1,55 +1,103 @@
-/* NagrikQ Unified CSS Design System Tokens */
+/* NagrikQ Unified CSS Design System Tokens
+   Strict Government/Civic Design System & Color Palette
+*/
 
 :root {
-  /* Brand Primary Palette */
-  --color-primary-900: #123B63;
-  --color-primary-800: #164B78;
-  --color-primary-700: #1769AA;
-  --color-primary-600: #1E7CC1;
-  --color-primary-500: #2B8FD3;
-  --color-primary-200: #C5E2F7;
-  --color-primary-100: #E8F3FB;
-  --color-primary-50:  #F3F9FD;
+  /* ==========================================================================
+     GLOBAL FOUNDATION & TARGET COLOR SYSTEM
+     ========================================================================== */
+  --color-primary: #C77720;
+  --color-primary-hover: #B56817;
+  --color-secondary: #3F5F45;
+  --color-secondary-hover: #324C37;
+  --color-tertiary: #B85C38;
+  --color-tertiary-hover: #A04A27;
+  --color-neutral: #171717;
+
+  /* Surfaces, Backgrounds & Borders */
+  --color-bg-page: #F7F3E8;
+  --color-bg-card: #FFFDF7;
+  --color-border: #DDD6C8;
+  --color-border-subtle: #EAE3D4;
+
+  /* Typography Colors */
+  --color-text-primary: #171717;
+  --color-text-secondary: #6B665D;
+  --color-text-muted: #8A8378;
+
+  /* Semantic State Colors */
+  --color-success: #3F5F45;
+  --color-warning: #C77720;
+  --color-error: #B91C1C;
+  --color-white: #FFFDF7;          /* Card & Panel Surface */
+  --color-pure-white: #FFFFFF;     /* Pure White */
+
+  /* Panel Role Accent Variable (Defaults to Saffron #C77720) */
+  --color-role-accent: #C77720;
+  --color-role-accent-soft: rgba(199, 119, 32, 0.10);
+
+  /* Primary Palette (Warm Saffron / Charcoal System) */
+  --color-primary-900: #171717;    /* Dark UI / Dark Header Cards / Inverted Elements */
+  --color-primary-800: #262422;
+  --color-primary-700: #C77720;    /* Primary Action */
+  --color-primary-600: #D9872F;
+  --color-primary-500: #E89943;
+  --color-primary-200: #F3D9BD;
+  --color-primary-100: #FBF0E4;    /* Soft Tint */
+  --color-primary-50:  #FDF8F2;    /* Subtle Tint */
 
   /* Saffron Accent Palette */
-  --color-accent-700: #C45A00;
-  --color-accent-600: #E06A00;
-  --color-accent-500: #F28C28;
-  --color-accent-100: #FFF0DF;
-  --color-accent-50:  #FFF8EF;
+  --color-accent-700: #B85C38;    /* Terracotta */
+  --color-accent-600: #C77720;    /* Primary Saffron */
+  --color-accent-500: #D9872F;
+  --color-accent-100: #FBF0E4;
+  --color-accent-50:  #FDF8F2;
 
-  /* Semantic Colors */
-  --color-success-700: #16794C;
-  --color-success-500: #22A06B;
-  --color-success-100: #E8F7EF;
+  /* Success Palette (#3F5F45 Deep Green) */
+  --color-success-700: #2E4733;
+  --color-success-600: #3F5F45;
+  --color-success-500: #3F5F45;
+  --color-success-100: #EAEFEA;
+  --color-success-50:  #F4F7F4;
 
-  --color-warning-700: #A15C00;
-  --color-warning-500: #D88900;
-  --color-warning-100: #FFF4D6;
+  /* Warning / Pending / Attention Palette (#C77720 Saffron) */
+  --color-warning-700: #A85E15;
+  --color-warning-600: #C77720;
+  --color-warning-500: #C77720;
+  --color-warning-100: #FBF0E4;
+  --color-warning-50:  #FDF8F2;
 
-  --color-error-700: #B42318;
-  --color-error-500: #D92D20;
-  --color-error-100: #FEECEB;
+  /* Error / Rejected / Failed Palette (#B91C1C) */
+  --color-error-700: #991B1B;
+  --color-error-600: #B91C1C;
+  --color-error-500: #B91C1C;
+  --color-error-100: #FEE8E8;
+  --color-error-50:  #FFF5F5;
 
-  --color-info-700: #175CD3;
-  --color-info-500: #2E90FA;
-  --color-info-100: #EAF3FF;
+  /* Info / Neutral (Replaced Blue with Restrained Warm Neutral/Cream) */
+  --color-info-700: #171717;
+  --color-info-600: #4A463F;
+  --color-info-500: #6B665D;
+  --color-info-200: #DDD6C8;
+  --color-info-100: #EAE3D4;
+  --color-info-50:  #F7F3E8;
 
   /* Neutral Spectrum */
-  --color-neutral-950: #101828;
-  --color-neutral-900: #1D2939;
-  --color-neutral-800: #344054;
-  --color-neutral-700: #475467;
-  --color-neutral-600: #667085;
-  --color-neutral-500: #98A2B3;
-  --color-neutral-400: #D0D5DD;
-  --color-neutral-300: #E4E7EC;
-  --color-neutral-200: #F2F4F7;
-  --color-neutral-100: #F9FAFB;
-  --color-white: #FFFFFF;
+  --color-neutral-950: #171717;    /* Black / Dark Charcoal */
+  --color-neutral-900: #171717;    /* Primary Text */
+  --color-neutral-800: #262422;
+  --color-neutral-700: #4A463F;
+  --color-neutral-600: #6B665D;    /* Secondary Text */
+  --color-neutral-500: #8A8378;    /* Muted Text / Placeholder */
+  --color-neutral-400: #B8B0A2;
+  --color-neutral-300: #DDD6C8;    /* Border */
+  --color-neutral-200: #EAE3D4;    /* Light Border / Divider */
+  --color-neutral-100: #F7F3E8;    /* Page Background */
+  --color-neutral-50:  #FAF7F0;    /* Soft Light Surface */
 
   /* Typography */
-  --font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', sans-serif;
+  --font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-heading: 'Public Sans', 'Inter', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
 
   /* Default Spacing Grid */
   --space-xs: 4px;
@@ -68,14 +116,42 @@
   --radius-xl: 20px;
   --radius-full: 9999px;
 
-  /* Shadows */
-  --shadow-xs: 0 1px 2px rgba(16, 24, 40, 0.05);
-  --shadow-sm: 0 2px 6px rgba(16, 24, 40, 0.06);
-  --shadow-md: 0 8px 24px rgba(16, 24, 40, 0.08);
-  --shadow-lg: 0 16px 40px rgba(16, 24, 40, 0.10);
+  /* Subtle Shadows (Minimal, refined, never heavy) */
+  --shadow-xs: 0 1px 2px rgba(23, 23, 23, 0.04);
+  --shadow-sm: 0 1px 3px rgba(23, 23, 23, 0.05);
+  --shadow-md: 0 4px 12px rgba(23, 23, 23, 0.05);
+  --shadow-lg: 0 8px 24px rgba(23, 23, 23, 0.06);
 }
 
-/* Modern Mode Specific Overrides */
+/* ==========================================================================
+   PANEL ROLE ACCENT OVERRIDES (Unified Cream & Black Foundation)
+   ========================================================================== */
+.panel-superadmin {
+  --color-role-accent: #C77720;
+  --color-role-accent-soft: rgba(199, 119, 32, 0.10);
+}
+
+.panel-employee {
+  --color-role-accent: #3F5F45;
+  --color-role-accent-soft: rgba(63, 95, 69, 0.10);
+}
+
+.panel-citizen {
+  --color-role-accent: #B85C38;
+  --color-role-accent-soft: rgba(184, 92, 56, 0.10);
+}
+
+.panel-admin {
+  --color-role-accent: #684A6B;
+  --color-role-accent-soft: rgba(104, 74, 107, 0.10);
+}
+
+.panel-public {
+  --color-role-accent: #C77720;
+  --color-role-accent-soft: rgba(199, 119, 32, 0.10);
+}
+
+/* Modern Mode Specific */
 body.mode-modern {
   --base-font-size: 16px;
   --card-radius: var(--radius-lg);
@@ -85,7 +161,7 @@ body.mode-modern {
   --layout-density: comfortable;
 }
 
-/* Simple Mode Specific Overrides */
+/* Simple Mode Specific */
 body.mode-simple {
   --base-font-size: 18px;
   --card-radius: 14px;

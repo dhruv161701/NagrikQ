@@ -30,7 +30,7 @@ export const Input: React.FC<InputProps> = ({
           style={{
             fontWeight: 600,
             fontSize: isSimple ? '1.05rem' : '0.9rem',
-            color: 'var(--color-neutral-800)',
+            color: 'var(--color-text-primary)',
           }}
         >
           {label}
@@ -42,7 +42,7 @@ export const Input: React.FC<InputProps> = ({
             style={{
               position: 'absolute',
               left: '14px',
-              color: 'var(--color-neutral-500)',
+              color: 'var(--color-text-muted)',
               display: 'flex',
               alignItems: 'center',
             }}
@@ -58,24 +58,25 @@ export const Input: React.FC<InputProps> = ({
             fontSize: isSimple ? '1.1rem' : '1rem',
             paddingLeft: icon ? '42px' : '14px',
             paddingRight: '14px',
-            border: `1.5px solid ${error ? 'var(--color-error-500)' : 'var(--color-neutral-300)'}`,
+            border: `1.5px solid ${error ? 'var(--color-error)' : 'var(--color-border)'}`,
             borderRadius: isSimple ? '12px' : '10px',
-            backgroundColor: 'var(--color-white)',
-            color: 'var(--color-neutral-900)',
+            backgroundColor: 'var(--color-bg-card)',
+            color: 'var(--color-text-primary)',
             outline: 'none',
             boxSizing: 'border-box',
+            transition: 'border-color 0.15s ease, box-shadow 0.15s ease',
             ...style,
           }}
-          className={className}
+          className={`input-field ${className}`}
           {...props}
         />
       </div>
       {error ? (
-        <span style={{ fontSize: '0.85rem', color: 'var(--color-error-700)', fontWeight: 500 }}>
+        <span style={{ fontSize: '0.85rem', color: 'var(--color-error)', fontWeight: 500 }}>
           {error}
         </span>
       ) : helperText ? (
-        <span style={{ fontSize: '0.85rem', color: 'var(--color-neutral-600)' }}>
+        <span style={{ fontSize: '0.85rem', color: 'var(--color-text-secondary)' }}>
           {helperText}
         </span>
       ) : null}

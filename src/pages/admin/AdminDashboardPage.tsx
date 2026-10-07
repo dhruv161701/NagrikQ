@@ -73,7 +73,7 @@ export const AdminDashboardPage: React.FC = () => {
           { label: 'Applications Today', value: applications.length, sub: 'Submitted online', icon: <FileText size={24} />, color: 'var(--color-info-700)' },
           { label: 'People Waiting', value: waitingTokens, sub: 'In virtual queue', icon: <Clock size={24} />, color: 'var(--color-accent-600)' },
           { label: 'Active Services', value: services.length, sub: 'Department catalog', icon: <Shield size={24} />, color: 'var(--color-success-700)' },
-          { label: 'Pending Change Requests', value: pendingCRs, sub: 'Awaiting Super Admin', icon: <GitPullRequest size={24} />, color: '#6B21A8' },
+          { label: 'Pending Change Requests', value: pendingCRs, sub: 'Awaiting Super Admin', icon: <GitPullRequest size={24} />, color: '#684A6B' },
         ].map((m, idx) => (
           <Card key={idx} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

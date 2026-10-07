@@ -72,7 +72,7 @@ export const ServiceDetailPage: React.FC = () => {
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', maxWidth: '700px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
               <Badge variant="blue">{service.category}</Badge>
-              <span style={{ fontSize: '0.85rem', color: '#93C5FD', fontWeight: 600 }}>
+              <span style={{ fontSize: '0.85rem', color: 'var(--color-border)', fontWeight: 600 }}>
                 CODE: {service.code}
               </span>
             </div>

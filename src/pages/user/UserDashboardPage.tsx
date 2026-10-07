@@ -84,7 +84,7 @@ export const UserDashboardPage: React.FC = () => {
             { label: 'My Applications', icon: <FileCheck size={22} />, path: '/user/applications', color: 'var(--color-info-700)' },
             { label: 'My Queue Token', icon: <Clock size={22} />, path: '/user/queue', color: 'var(--color-accent-600)' },
             { label: 'Document Vault', icon: <UploadCloud size={22} />, path: '/user/documents', color: 'var(--color-success-700)' },
-            { label: 'Ask AI Assistant', icon: <Bot size={22} />, path: '/user/assistant', color: '#6B21A8' },
+            { label: 'Ask AI Assistant', icon: <Bot size={22} />, path: '/user/assistant', color: 'var(--color-primary-700)' },
           ].map((act, idx) => (
             <Card
               key={idx}

@@ -22,8 +22,8 @@ export const Card: React.FC<CardProps> = ({
   return (
     <div
       style={{
-        backgroundColor: 'var(--color-white)',
-        border: '1px solid var(--color-neutral-200)',
+        backgroundColor: 'var(--color-bg-card)',
+        border: '1px solid var(--color-border)',
         borderRadius: isSimple ? '14px' : '16px',
         padding: defaultPadding,
         boxShadow: 'var(--shadow-xs)',

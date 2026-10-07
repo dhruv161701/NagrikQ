@@ -8,8 +8,8 @@
 
 html, body {
   font-family: var(--font-family);
-  background-color: var(--color-neutral-100);
-  color: var(--color-neutral-900);
+  background-color: var(--color-bg-page);
+  color: var(--color-text-primary);
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   min-height: 100vh;
@@ -28,6 +28,7 @@ body.mode-simple {
   display: flex;
   flex-direction: column;
   width: 100%;
+  background-color: var(--color-bg-page);
 }
 
 a {
@@ -39,9 +40,10 @@ button, input, select, textarea {
   font-family: inherit;
 }
 
-/* Base Headings */
+/* Base Headings - Public Sans */
 h1, h2, h3, h4, h5, h6 {
-  color: var(--color-neutral-950);
+  font-family: var(--font-heading);
+  color: var(--color-text-primary);
   font-weight: 700;
   line-height: 1.25;
 }
@@ -62,17 +64,59 @@ body.mode-simple h4 { font-size: 1.25rem; }
   height: 8px;
 }
 ::-webkit-scrollbar-track {
-  background: var(--color-neutral-200);
+  background: var(--color-bg-page);
 }
 ::-webkit-scrollbar-thumb {
-  background: var(--color-neutral-400);
+  background: var(--color-border);
   border-radius: var(--radius-full);
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--color-neutral-500);
+  background: var(--color-neutral-400);
 }
 
-/* Animations */
+/* Button Interactive States */
+.btn-primary:hover,
+.btn-saffron:hover {
+  background-color: var(--color-primary-hover) !important;
+  border-color: var(--color-primary-hover) !important;
+}
+
+.btn-secondary:hover {
+  background-color: var(--color-secondary-hover) !important;
+  border-color: var(--color-secondary-hover) !important;
+}
+
+.btn-outline:hover {
+  background-color: rgba(23, 23, 23, 0.05) !important;
+}
+
+.btn-tertiary:hover {
+  color: var(--color-primary-hover) !important;
+  background-color: rgba(199, 119, 32, 0.08) !important;
+}
+
+.btn-danger:hover {
+  background-color: #991B1B !important;
+  border-color: #991B1B !important;
+}
+
+/* Input Fields */
+.input-field::placeholder {
+  color: var(--color-text-muted) !important;
+}
+
+.input-field:focus {
+  border-color: var(--color-primary) !important;
+  box-shadow: 0 0 0 3px rgba(199, 119, 32, 0.15) !important;
+}
+
+/* Hoverable Cards */
+.hoverable-card:hover {
+  border-color: #B8B0A2 !important;
+  box-shadow: var(--shadow-sm) !important;
+}
+
+/* Subtle Micro-Animations */
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(6px); }
   to { opacity: 1; transform: translateY(0); }

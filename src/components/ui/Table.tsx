@@ -20,10 +20,10 @@ export function Table<T>({ columns, data, keyExtractor, emptyMessage = 'No recor
   const isSimple = uiMode === 'simple';
 
   return (
-    <div style={{ width: '100%', overflowX: 'auto', borderRadius: isSimple ? '14px' : '12px', border: '1px solid var(--color-neutral-200)' }}>
-      <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', backgroundColor: 'var(--color-white)' }}>
+    <div style={{ width: '100%', overflowX: 'auto', borderRadius: isSimple ? '14px' : '12px', border: '1px solid var(--color-border)' }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', backgroundColor: 'var(--color-bg-card)' }}>
         <thead>
-          <tr style={{ backgroundColor: 'var(--color-neutral-100)', borderBottom: '1px solid var(--color-neutral-200)' }}>
+          <tr style={{ backgroundColor: 'var(--color-bg-page)', borderBottom: '1px solid var(--color-border)' }}>
             {columns.map((col) => (
               <th
                 key={col.key}
@@ -31,10 +31,11 @@ export function Table<T>({ columns, data, keyExtractor, emptyMessage = 'No recor
                   padding: isSimple ? '16px 20px' : '12px 16px',
                   fontSize: isSimple ? '1rem' : '0.85rem',
                   fontWeight: 700,
-                  color: 'var(--color-neutral-700)',
+                  color: 'var(--color-text-primary)',
                   textTransform: 'uppercase',
                   letterSpacing: '0.5px',
                   width: col.width,
+                  fontFamily: 'var(--font-heading)',
                 }}
               >
                 {col.header}
@@ -45,7 +46,7 @@ export function Table<T>({ columns, data, keyExtractor, emptyMessage = 'No recor
         <tbody>
           {data.length === 0 ? (
             <tr>
-              <td colSpan={columns.length} style={{ padding: '32px', textAlign: 'center', color: 'var(--color-neutral-500)' }}>
+              <td colSpan={columns.length} style={{ padding: '32px', textAlign: 'center', color: 'var(--color-text-muted)' }}>
                 {emptyMessage}
               </td>
             </tr>
@@ -54,7 +55,7 @@ export function Table<T>({ columns, data, keyExtractor, emptyMessage = 'No recor
               <tr
                 key={keyExtractor(row)}
                 style={{
-                  borderBottom: '1px solid var(--color-neutral-200)',
+                  borderBottom: '1px solid var(--color-border-subtle)',
                   height: isSimple ? '68px' : '56px',
                   transition: 'background-color 0.15s ease',
                 }}
@@ -65,7 +66,7 @@ export function Table<T>({ columns, data, keyExtractor, emptyMessage = 'No recor
                     style={{
                       padding: isSimple ? '16px 20px' : '12px 16px',
                       fontSize: isSimple ? '1.05rem' : '0.95rem',
-                      color: 'var(--color-neutral-900)',
+                      color: 'var(--color-text-primary)',
                     }}
                   >
                     {col.render ? col.render(row) : (row as any)[col.key]}
