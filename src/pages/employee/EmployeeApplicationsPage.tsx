@@ -5,6 +5,7 @@ import { Card } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { StatusBadge } from '../../components/ui/StatusBadge';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
+import { Modal } from '../../components/ui/Modal';
 import { EmptyState } from '../../components/ui/EmptyState';
 import {
   CheckCircle,
@@ -23,6 +24,7 @@ import {
   Volume2,
   Sparkles,
 } from 'lucide-react';
+import type { Application } from '../../types';
 
 export const EmployeeApplicationsPage: React.FC = () => {
   const { currentUser } = useAuth();
@@ -79,6 +81,10 @@ export const EmployeeApplicationsPage: React.FC = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [queueActionBanner, setQueueActionBanner] = useState<string>('');
 
+  // POPUP MODAL STATE FOR "VIEW DOCS"
+  const [isDocsModalOpen, setIsDocsModalOpen] = useState(false);
+  const [inspectApp, setInspectApp] = useState<Application | null>(null);
+
   const handleToggleService = (serviceId: string) => {
     setSelectedServiceIds((prev) => {
       const updated = prev.includes(serviceId)
@@ -119,27 +125,24 @@ export const EmployeeApplicationsPage: React.FC = () => {
     });
   }, [applications, onlyAssignedFilter, selectedServiceIds, statusFilter]);
 
-  const [selectedAppId, setSelectedAppId] = useState<string | null>(null);
-
-  // Auto-select first application when list changes if none selected or selected not in visible
+  // Keep inspectApp synced if applications update in DataContext
   useEffect(() => {
-    if (visibleApplications.length > 0) {
-      const exists = visibleApplications.some((a) => a.id === selectedAppId);
-      if (!exists) {
-        setSelectedAppId(visibleApplications[0].id);
+    if (inspectApp) {
+      const updated = applications.find((a) => a.id === inspectApp.id);
+      if (updated) {
+        setInspectApp(updated);
       }
-    } else {
-      setSelectedAppId(null);
     }
-  }, [visibleApplications, selectedAppId]);
+  }, [applications, inspectApp]);
 
-  const selectedApp = useMemo(() => {
-    return applications.find((a) => a.id === selectedAppId) || null;
-  }, [applications, selectedAppId]);
+  const handleOpenDocsModal = (app: Application) => {
+    setInspectApp(app);
+    setIsDocsModalOpen(true);
+  };
 
   const handleDocAction = (docId: string, status: 'VERIFIED' | 'REJECTED' | 'NEEDS_CORRECTION') => {
-    if (!selectedApp) return;
-    updateDocumentStatus(selectedApp.id, docId, status);
+    if (!inspectApp) return;
+    updateDocumentStatus(inspectApp.id, docId, status);
   };
 
   const [confirmDialog, setConfirmDialog] = useState<{
@@ -151,35 +154,37 @@ export const EmployeeApplicationsPage: React.FC = () => {
   const [correctionNote, setCorrectionNote] = useState('');
 
   // USER ACTION HANDLER: APPROVE, REJECT, OR REQUEST CORRECTION
-  // Automatically closes the user's turn (queue token) and calls the next waiting citizen!
+  // Automatically closes the user's turn (queue token), calls next citizen, and closes the popup!
   const handleFinalStatus = async () => {
-    if (!selectedApp) return;
+    if (!inspectApp) return;
 
     let actionLabel = '';
-    const currentApplicantName = selectedApp.citizenName || 'Applicant';
+    const currentApplicantName = inspectApp.citizenName || 'Applicant';
 
     if (confirmDialog.type === 'approve') {
       actionLabel = 'Approved & Certificate Issued';
-      await updateApplicationStatus(selectedApp.id, 'APPROVED', 'Officer verified all documents and approved application.');
+      await updateApplicationStatus(inspectApp.id, 'APPROVED', 'Officer verified all documents and approved application.');
     } else if (confirmDialog.type === 'reject') {
       actionLabel = 'Rejected';
-      await updateApplicationStatus(selectedApp.id, 'REJECTED', 'Application rejected due to invalid or unverified document proofs.');
+      await updateApplicationStatus(inspectApp.id, 'REJECTED', 'Application rejected due to invalid or unverified document proofs.');
     } else if (confirmDialog.type === 'correction') {
       actionLabel = 'Correction Requested';
       await updateApplicationStatus(
-        selectedApp.id,
+        inspectApp.id,
         'ACTION_REQUIRED',
         correctionNote.trim() || 'Officer requested citizen to re-upload clear and valid document proof.'
       );
     }
+
     setCorrectionNote('');
     setConfirmDialog({ isOpen: false, type: 'approve' });
+    setIsDocsModalOpen(false); // Close the popup box
 
     // 1. Close current citizen's turn (queue token)
     const matchingTokens = queueTokens.filter(
       (q) =>
-        (q.applicationId === selectedApp.id ||
-         q.citizenId === selectedApp.citizenId ||
+        (q.applicationId === inspectApp.id ||
+         q.citizenId === inspectApp.citizenId ||
          q.counterNumber === activeCounter) &&
         (q.status === 'IN_SERVICE' || q.status === 'CALLED' || q.status === 'WAITING')
     );
@@ -202,18 +207,22 @@ export const EmployeeApplicationsPage: React.FC = () => {
       );
     }
     setTimeout(() => setQueueActionBanner(''), 9000);
-
-    // 4. Automatically advance selected application in inbox
-    const remainingApps = visibleApplications.filter((a) => a.id !== selectedApp.id);
-    if (remainingApps.length > 0) {
-      setSelectedAppId(remainingApps[0].id);
-    }
   };
 
   const handleManualRefresh = async () => {
     setRefreshing(true);
     await refreshApplications();
     setTimeout(() => setRefreshing(false), 500);
+  };
+
+  const formatDisplayTime = (dateStr: string) => {
+    try {
+      const d = new Date(dateStr);
+      if (!isNaN(d.getTime())) {
+        return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      }
+    } catch {}
+    return dateStr;
   };
 
   return (
@@ -246,7 +255,7 @@ export const EmployeeApplicationsPage: React.FC = () => {
             Document Verification & Application Processing
           </h1>
           <p style={{ color: 'var(--color-neutral-600)', marginTop: '4px' }}>
-            Review citizen-submitted certificates, check uploaded identity proofs, and issue approvals or correction requests.
+            Review citizen submitted certificates, check uploaded identity proofs, and issue approvals or correction requests.
           </p>
         </div>
 
@@ -430,311 +439,381 @@ export const EmployeeApplicationsPage: React.FC = () => {
         </div>
       </div>
 
-      {visibleApplications.length === 0 ? (
-        <EmptyState
-          title={
-            onlyAssignedFilter && selectedServiceIds.length === 0
-              ? 'No Services Selected'
-              : 'No Applications Match Filters'
-          }
-          description={
-            onlyAssignedFilter && selectedServiceIds.length === 0
-              ? 'Please select at least one service above to view citizen applications.'
-              : 'There are currently no citizen applications matching the selected criteria in your assigned services.'
-          }
-          actionText={onlyAssignedFilter ? 'View All Office Applications' : undefined}
-          onAction={onlyAssignedFilter ? () => setOnlyAssignedFilter(false) : undefined}
-        />
-      ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(300px, 380px) 1fr', gap: '24px' }}>
-          {/* Left List of Applications */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 4px' }}>
-              <h3 style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--color-neutral-800)' }}>
-                Citizen Inbox ({visibleApplications.length})
-              </h3>
-            </div>
+      {/* FULL WIDTH CITIZEN INBOX */}
+      <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 4px' }}>
+          <h2 style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--color-primary-900)' }}>
+            Citizen Inbox ({visibleApplications.length})
+          </h2>
+          <span style={{ fontSize: '0.85rem', color: 'var(--color-neutral-500)' }}>
+            Click <strong>View Docs</strong> on any citizen row to inspect submitted proofs and take action
+          </span>
+        </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '720px', overflowY: 'auto', paddingRight: '4px' }}>
-              {visibleApplications.map((app) => {
-                const isSelected = selectedAppId === app.id;
-                return (
-                  <Card
-                    key={app.id}
-                    onClick={() => setSelectedAppId(app.id)}
-                    style={{
-                      cursor: 'pointer',
-                      border: `2px solid ${isSelected ? 'var(--color-primary-700)' : 'var(--color-neutral-200)'}`,
-                      backgroundColor: isSelected ? 'var(--color-primary-50)' : 'var(--color-white)',
-                      boxShadow: isSelected ? '0 4px 12px rgba(11, 79, 108, 0.12)' : 'none',
-                      transition: 'all 0.15s ease',
-                      padding: '16px',
-                    }}
-                  >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
-                      <div style={{ fontWeight: 800, fontSize: '0.95rem', color: isSelected ? 'var(--color-primary-900)' : 'var(--color-neutral-900)' }}>
-                        {app.serviceName}
-                      </div>
-                      <StatusBadge status={app.status} />
-                    </div>
+        {visibleApplications.length === 0 ? (
+          <EmptyState
+            title={
+              onlyAssignedFilter && selectedServiceIds.length === 0
+                ? 'No Services Selected'
+                : 'No Applications Match Filters'
+            }
+            description={
+              onlyAssignedFilter && selectedServiceIds.length === 0
+                ? 'Please select at least one service above to view citizen applications.'
+                : 'There are currently no citizen applications matching the selected criteria in your assigned services.'
+            }
+            actionText={onlyAssignedFilter ? 'View All Office Applications' : undefined}
+            onAction={onlyAssignedFilter ? () => setOnlyAssignedFilter(false) : undefined}
+          />
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', width: '100%' }}>
+            {visibleApplications.map((app) => {
+              // Linked token if present
+              const linkedToken = queueTokens.find(
+                (q) => q.applicationId === app.id || q.citizenId === app.citizenId
+              );
+              const displayTokenId = linkedToken?.tokenNumber || app.applicationNumber;
 
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '0.82rem', color: 'var(--color-neutral-600)' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <User size={13} color="var(--color-primary-700)" />
-                        <span style={{ fontWeight: 600, color: 'var(--color-neutral-800)' }}>{app.citizenName}</span>
-                      </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '2px' }}>
-                        <span style={{ color: 'var(--color-neutral-500)', fontFamily: 'monospace' }}>
-                          {app.applicationNumber}
-                        </span>
-                        <span>{app.documents.length} Docs</span>
-                      </div>
-                    </div>
-                  </Card>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Right Active Inspection Pane */}
-          {selectedApp ? (
-            <Card style={{ display: 'flex', flexDirection: 'column', gap: '20px', padding: '24px' }}>
-              {/* Header section of application */}
-              <div style={{ borderBottom: '1px solid var(--color-neutral-200)', paddingBottom: '16px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                  <span
-                    style={{
-                      fontSize: '0.8rem',
-                      color: 'var(--color-primary-800)',
-                      fontWeight: 800,
-                      backgroundColor: 'var(--color-primary-100)',
-                      padding: '3px 10px',
-                      borderRadius: '6px',
-                    }}
-                  >
-                    REF: {selectedApp.applicationNumber}
-                  </span>
-                  <StatusBadge status={selectedApp.status} />
-                </div>
-
-                <h2 style={{ fontSize: '1.45rem', fontWeight: 800, color: 'var(--color-primary-900)', marginTop: '4px' }}>
-                  {selectedApp.serviceName}
-                </h2>
-
+              return (
                 <div
+                  key={app.id}
                   style={{
-                    display: 'flex',
-                    flexWrap: 'wrap',
-                    gap: '20px',
-                    marginTop: '12px',
-                    padding: '12px 16px',
-                    backgroundColor: 'var(--color-neutral-50)',
-                    borderRadius: '8px',
+                    backgroundColor: 'var(--color-white)',
+                    borderRadius: '12px',
                     border: '1px solid var(--color-neutral-200)',
-                    fontSize: '0.88rem',
+                    padding: '16px 24px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    flexWrap: 'wrap',
+                    gap: '16px',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+                    transition: 'all 0.15s ease',
                   }}
                 >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <User size={15} color="var(--color-primary-700)" />
-                    <span>Applicant: <strong>{selectedApp.citizenName}</strong></span>
+                  {/* Token / Reference Column */}
+                  <div style={{ minWidth: '100px' }}>
+                    <div
+                      style={{
+                        fontSize: '1.25rem',
+                        fontWeight: 900,
+                        color: 'var(--color-primary-800)',
+                        letterSpacing: '0.5px',
+                      }}
+                    >
+                      {displayTokenId}
+                    </div>
+                    {linkedToken?.tokenNumber && (
+                      <span style={{ fontSize: '0.75rem', color: 'var(--color-neutral-500)', fontFamily: 'monospace' }}>
+                        {app.applicationNumber}
+                      </span>
+                    )}
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <Phone size={15} color="var(--color-primary-700)" />
-                    <span>Contact: <strong>{selectedApp.citizenPhone || 'N/A'}</strong></span>
+
+                  {/* Citizen User Column */}
+                  <div style={{ minWidth: '160px', flex: '1 1 180px' }}>
+                    <div style={{ fontWeight: 800, fontSize: '1rem', color: 'var(--color-neutral-900)' }}>
+                      {app.citizenName || 'Citizen User'}
+                    </div>
+                    <div style={{ fontSize: '0.82rem', color: 'var(--color-neutral-500)', marginTop: '2px' }}>
+                      {app.citizenPhone || '+91 9876543210'}
+                    </div>
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <Calendar size={15} color="var(--color-primary-700)" />
-                    <span>Submitted: <strong>{selectedApp.submittedAt}</strong></span>
+
+                  {/* Service Column */}
+                  <div style={{ minWidth: '160px', flex: '1 1 180px' }}>
+                    <div style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--color-neutral-800)' }}>
+                      {app.serviceName}
+                    </div>
+                    <div style={{ fontSize: '0.78rem', color: 'var(--color-neutral-500)', marginTop: '2px' }}>
+                      Priority: REGULAR • {app.documents.length} Docs
+                    </div>
+                  </div>
+
+                  {/* Assigned Counter Pill */}
+                  <div style={{ minWidth: '70px' }}>
+                    <span
+                      style={{
+                        padding: '4px 12px',
+                        backgroundColor: '#e0f2fe',
+                        color: '#0369a1',
+                        borderRadius: '8px',
+                        fontWeight: 800,
+                        fontSize: '0.85rem',
+                        display: 'inline-block',
+                      }}
+                    >
+                      {activeCounter}
+                    </span>
+                  </div>
+
+                  {/* Issued / Submitted Time */}
+                  <div style={{ minWidth: '90px', fontSize: '0.88rem', color: 'var(--color-neutral-700)', fontWeight: 500 }}>
+                    {formatDisplayTime(app.submittedAt)}
+                  </div>
+
+                  {/* Status Badge */}
+                  <div style={{ minWidth: '110px' }}>
+                    <StatusBadge status={app.status} />
+                  </div>
+
+                  {/* View Docs Action Button */}
+                  <div>
+                    <Button
+                      variant="saffron"
+                      size="sm"
+                      onClick={() => handleOpenDocsModal(app)}
+                      icon={<FileText size={15} />}
+                      style={{ fontWeight: 700, padding: '8px 18px' }}
+                    >
+                      View Docs
+                    </Button>
                   </div>
                 </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
 
-                {selectedApp.notes && (
-                  <div
-                    style={{
-                      marginTop: '12px',
-                      padding: '10px 14px',
-                      borderRadius: '8px',
-                      backgroundColor: 'var(--color-saffron-50)',
-                      border: '1px solid var(--color-saffron-200)',
-                      color: 'var(--color-saffron-900)',
-                      fontSize: '0.85rem',
-                    }}
-                  >
-                    <strong>Officer / System Note:</strong> {selectedApp.notes}
-                  </div>
-                )}
+      {/* POPUP MODAL FOR DOCUMENT VERIFICATION & DECISION */}
+      {inspectApp && (
+        <Modal
+          isOpen={isDocsModalOpen}
+          onClose={() => setIsDocsModalOpen(false)}
+          title={`Document Inspection — ${inspectApp.applicationNumber}`}
+          maxWidth="840px"
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', padding: '4px 0' }}>
+            {/* Header section of application */}
+            <div style={{ borderBottom: '1px solid var(--color-neutral-200)', paddingBottom: '16px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                <span
+                  style={{
+                    fontSize: '0.8rem',
+                    color: 'var(--color-primary-800)',
+                    fontWeight: 800,
+                    backgroundColor: 'var(--color-primary-100)',
+                    padding: '3px 10px',
+                    borderRadius: '6px',
+                  }}
+                >
+                  REF: {inspectApp.applicationNumber}
+                </span>
+                <StatusBadge status={inspectApp.status} />
               </div>
 
-              {/* Document Items Verification */}
-              <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
-                  <h3 style={{ fontSize: '1.1rem', color: 'var(--color-primary-900)', fontWeight: 700 }}>
-                    Submitted Documents Checklist ({selectedApp.documents.length})
-                  </h3>
-                  <span style={{ fontSize: '0.82rem', color: 'var(--color-neutral-500)' }}>
-                    Verify each document proof before making final decision
-                  </span>
-                </div>
+              <h2 style={{ fontSize: '1.45rem', fontWeight: 800, color: 'var(--color-primary-900)', marginTop: '4px' }}>
+                {inspectApp.serviceName}
+              </h2>
 
-                {selectedApp.documents.length === 0 ? (
-                  <div style={{ padding: '24px', textAlign: 'center', color: 'var(--color-neutral-500)', backgroundColor: 'var(--color-neutral-50)', borderRadius: '8px' }}>
-                    No supporting documents attached with this submission.
-                  </div>
-                ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                    {selectedApp.documents.map((doc) => (
-                      <div
-                        key={doc.id}
-                        style={{
-                          padding: '16px',
-                          borderRadius: '10px',
-                          border: `1.5px solid ${
-                            doc.status === 'VERIFIED'
-                              ? 'var(--color-green-300)'
-                              : doc.status === 'REJECTED'
-                              ? 'var(--color-red-300)'
-                              : doc.status === 'NEEDS_CORRECTION'
-                              ? 'var(--color-saffron-300)'
-                              : 'var(--color-neutral-200)'
-                          }`,
-                          backgroundColor:
-                            doc.status === 'VERIFIED'
-                              ? 'var(--color-green-50)'
-                              : doc.status === 'REJECTED'
-                              ? '#fff5f5'
-                              : 'var(--color-neutral-50)',
-                          display: 'flex',
-                          flexDirection: 'column',
-                          gap: '12px',
-                        }}
-                      >
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '8px' }}>
-                          <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
-                            <FileText size={20} color="var(--color-primary-700)" style={{ marginTop: '2px' }} />
-                            <div>
-                              <div style={{ fontWeight: 700, color: 'var(--color-neutral-900)', fontSize: '0.95rem' }}>
-                                {doc.requirementName}
-                              </div>
-                              <span style={{ fontSize: '0.82rem', color: 'var(--color-neutral-600)' }}>
-                                Attached File: <strong>{doc.fileName}</strong>
-                              </span>
-                            </div>
-                          </div>
-                          <StatusBadge status={doc.status} />
-                        </div>
-
-                        {/* File preview button and action buttons */}
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
-                          {doc.fileUrl ? (
-                            <a
-                              href={doc.fileUrl}
-                              target="_blank"
-                              rel="noreferrer"
-                              style={{
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: '6px',
-                                fontSize: '0.82rem',
-                                color: 'var(--color-primary-700)',
-                                textDecoration: 'none',
-                                fontWeight: 600,
-                              }}
-                            >
-                              <Eye size={14} /> Open Document File
-                            </a>
-                          ) : (
-                            <span style={{ fontSize: '0.8rem', color: 'var(--color-neutral-500)', fontStyle: 'italic' }}>
-                              Proof document registered
-                            </span>
-                          )}
-
-                          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                            <Button
-                              variant={doc.status === 'VERIFIED' ? 'primary' : 'outline'}
-                              size="sm"
-                              onClick={() => handleDocAction(doc.id, 'VERIFIED')}
-                              icon={<CheckCircle size={14} />}
-                            >
-                              Verify ✓
-                            </Button>
-                            <Button
-                              variant={doc.status === 'NEEDS_CORRECTION' ? 'saffron' : 'secondary'}
-                              size="sm"
-                              onClick={() => handleDocAction(doc.id, 'NEEDS_CORRECTION')}
-                              icon={<AlertTriangle size={14} />}
-                            >
-                              Request Correction
-                            </Button>
-                            <Button
-                              variant={doc.status === 'REJECTED' ? 'danger' : 'secondary'}
-                              size="sm"
-                              onClick={() => handleDocAction(doc.id, 'REJECTED')}
-                              icon={<XCircle size={14} />}
-                            >
-                              Reject Doc
-                            </Button>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* Application Final Decisions: Closes Turn & Automatically Calls Next Citizen */}
               <div
                 style={{
-                  borderTop: '1px solid var(--color-neutral-200)',
-                  paddingTop: '20px',
                   display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
                   flexWrap: 'wrap',
-                  gap: '12px',
+                  gap: '20px',
+                  marginTop: '12px',
+                  padding: '12px 16px',
+                  backgroundColor: 'var(--color-neutral-50)',
+                  borderRadius: '8px',
+                  border: '1px solid var(--color-neutral-200)',
+                  fontSize: '0.88rem',
                 }}
               >
-                <div style={{ display: 'flex', flexDirection: 'column' }}>
-                  <span style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--color-primary-900)' }}>
-                    Action Decision & Automatic Queue Advancement:
-                  </span>
-                  <span style={{ fontSize: '0.78rem', color: 'var(--color-neutral-500)' }}>
-                    Selecting any option below closes applicant turn and calls the next citizen automatically.
-                  </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <User size={15} color="var(--color-primary-700)" />
+                  <span>Applicant: <strong>{inspectApp.citizenName}</strong></span>
                 </div>
-
-                <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-                  <Button
-                    variant="danger"
-                    onClick={() => setConfirmDialog({ isOpen: true, type: 'reject' })}
-                    icon={<XCircle size={16} />}
-                  >
-                    Reject Application & Next
-                  </Button>
-                  <Button
-                    variant="saffron"
-                    onClick={() => setConfirmDialog({ isOpen: true, type: 'correction' })}
-                    icon={<AlertTriangle size={16} />}
-                  >
-                    Request Correction & Next
-                  </Button>
-                  <Button
-                    variant="primary"
-                    onClick={() => setConfirmDialog({ isOpen: true, type: 'approve' })}
-                    icon={<CheckCircle size={18} />}
-                  >
-                    Approve & Call Next Citizen →
-                  </Button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <Phone size={15} color="var(--color-primary-700)" />
+                  <span>Contact: <strong>{inspectApp.citizenPhone || 'N/A'}</strong></span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <Calendar size={15} color="var(--color-primary-700)" />
+                  <span>Submitted: <strong>{inspectApp.submittedAt}</strong></span>
                 </div>
               </div>
-            </Card>
-          ) : (
-            <Card style={{ padding: '40px', textAlign: 'center' }}>
-              <p style={{ color: 'var(--color-neutral-500)' }}>
-                Select an application from the left inbox to inspect citizen proofs and documents.
-              </p>
-            </Card>
-          )}
-        </div>
+
+              {inspectApp.notes && (
+                <div
+                  style={{
+                    marginTop: '12px',
+                    padding: '10px 14px',
+                    borderRadius: '8px',
+                    backgroundColor: 'var(--color-saffron-50)',
+                    border: '1px solid var(--color-saffron-200)',
+                    color: 'var(--color-saffron-900)',
+                    fontSize: '0.85rem',
+                  }}
+                >
+                  <strong>Officer / System Note:</strong> {inspectApp.notes}
+                </div>
+              )}
+            </div>
+
+            {/* Document Items Verification */}
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+                <h3 style={{ fontSize: '1.1rem', color: 'var(--color-primary-900)', fontWeight: 700 }}>
+                  Submitted Documents Checklist ({inspectApp.documents.length})
+                </h3>
+                <span style={{ fontSize: '0.82rem', color: 'var(--color-neutral-500)' }}>
+                  Verify each document proof before making final decision
+                </span>
+              </div>
+
+              {inspectApp.documents.length === 0 ? (
+                <div style={{ padding: '24px', textAlign: 'center', color: 'var(--color-neutral-500)', backgroundColor: 'var(--color-neutral-50)', borderRadius: '8px' }}>
+                  No supporting documents attached with this submission.
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', maxHeight: '340px', overflowY: 'auto', paddingRight: '4px' }}>
+                  {inspectApp.documents.map((doc) => (
+                    <div
+                      key={doc.id}
+                      style={{
+                        padding: '16px',
+                        borderRadius: '10px',
+                        border: `1.5px solid ${
+                          doc.status === 'VERIFIED'
+                            ? 'var(--color-green-300)'
+                            : doc.status === 'REJECTED'
+                            ? 'var(--color-red-300)'
+                            : doc.status === 'NEEDS_CORRECTION'
+                            ? 'var(--color-saffron-300)'
+                            : 'var(--color-neutral-200)'
+                        }`,
+                        backgroundColor:
+                          doc.status === 'VERIFIED'
+                            ? 'var(--color-green-50)'
+                            : doc.status === 'REJECTED'
+                            ? '#fff5f5'
+                            : 'var(--color-neutral-50)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '12px',
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '8px' }}>
+                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
+                          <FileText size={20} color="var(--color-primary-700)" style={{ marginTop: '2px' }} />
+                          <div>
+                            <div style={{ fontWeight: 700, color: 'var(--color-neutral-900)', fontSize: '0.95rem' }}>
+                              {doc.requirementName}
+                            </div>
+                            <span style={{ fontSize: '0.82rem', color: 'var(--color-neutral-600)' }}>
+                              Attached File: <strong>{doc.fileName}</strong>
+                            </span>
+                          </div>
+                        </div>
+                        <StatusBadge status={doc.status} />
+                      </div>
+
+                      {/* File preview button and action buttons */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+                        {doc.fileUrl ? (
+                          <a
+                            href={doc.fileUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                              fontSize: '0.82rem',
+                              color: 'var(--color-primary-700)',
+                              textDecoration: 'none',
+                              fontWeight: 600,
+                            }}
+                          >
+                            <Eye size={14} /> Open Document File
+                          </a>
+                        ) : (
+                          <span style={{ fontSize: '0.8rem', color: 'var(--color-neutral-500)', fontStyle: 'italic' }}>
+                            Proof document registered
+                          </span>
+                        )}
+
+                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                          <Button
+                            variant={doc.status === 'VERIFIED' ? 'primary' : 'outline'}
+                            size="sm"
+                            onClick={() => handleDocAction(doc.id, 'VERIFIED')}
+                            icon={<CheckCircle size={14} />}
+                          >
+                            Verify ✓
+                          </Button>
+                          <Button
+                            variant={doc.status === 'NEEDS_CORRECTION' ? 'saffron' : 'secondary'}
+                            size="sm"
+                            onClick={() => handleDocAction(doc.id, 'NEEDS_CORRECTION')}
+                            icon={<AlertTriangle size={14} />}
+                          >
+                            Request Correction
+                          </Button>
+                          <Button
+                            variant={doc.status === 'REJECTED' ? 'danger' : 'secondary'}
+                            size="sm"
+                            onClick={() => handleDocAction(doc.id, 'REJECTED')}
+                            icon={<XCircle size={14} />}
+                          >
+                            Reject Doc
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Application Final Decisions: Closes Turn & Automatically Calls Next Citizen */}
+            <div
+              style={{
+                borderTop: '1px solid var(--color-neutral-200)',
+                paddingTop: '18px',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: '12px',
+              }}
+            >
+              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                <span style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--color-primary-900)' }}>
+                  Action Decision & Queue Advancement:
+                </span>
+                <span style={{ fontSize: '0.78rem', color: 'var(--color-neutral-500)' }}>
+                  Closes applicant turn and calls next waiting citizen automatically.
+                </span>
+              </div>
+
+              <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                <Button
+                  variant="danger"
+                  onClick={() => setConfirmDialog({ isOpen: true, type: 'reject' })}
+                  icon={<XCircle size={16} />}
+                >
+                  Reject Application & Next
+                </Button>
+                <Button
+                  variant="saffron"
+                  onClick={() => setConfirmDialog({ isOpen: true, type: 'correction' })}
+                  icon={<AlertTriangle size={16} />}
+                >
+                  Request Correction & Next
+                </Button>
+                <Button
+                  variant="primary"
+                  onClick={() => setConfirmDialog({ isOpen: true, type: 'approve' })}
+                  icon={<CheckCircle size={18} />}
+                >
+                  Approve & Call Next Citizen →
+                </Button>
+              </div>
+            </div>
+          </div>
+        </Modal>
       )}
 
       {/* Confirmation Dialog with Note Input */}
@@ -751,10 +830,10 @@ export const EmployeeApplicationsPage: React.FC = () => {
         }
         message={
           confirmDialog.type === 'approve'
-            ? `Are you sure you want to approve application ${selectedApp?.applicationNumber}? This will issue certificate approval, conclude the citizen's turn, and automatically call the next citizen to Counter ${activeCounter}.`
+            ? `Are you sure you want to approve application ${inspectApp?.applicationNumber}? This will issue certificate approval, conclude the citizen's turn, and automatically call the next citizen to Counter ${activeCounter}.`
             : confirmDialog.type === 'reject'
-            ? `Are you sure you want to reject application ${selectedApp?.applicationNumber}? This will notify the citizen, conclude their turn, and automatically call the next waiting citizen.`
-            : `Specify what document or detail the citizen needs to re-upload for ${selectedApp?.applicationNumber}:`
+            ? `Are you sure you want to reject application ${inspectApp?.applicationNumber}? This will notify the citizen, conclude their turn, and automatically call the next waiting citizen.`
+            : `Specify what document or detail the citizen needs to re-upload for ${inspectApp?.applicationNumber}:`
         }
         confirmText={
           confirmDialog.type === 'approve'
