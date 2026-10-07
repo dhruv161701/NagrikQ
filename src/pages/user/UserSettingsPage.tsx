@@ -26,7 +26,7 @@ export const UserSettingsPage: React.FC = () => {
   });
 
   return (
-    <div style={{ maxWidth: '800px', display: 'flex', flexDirection: 'column', gap: '28px' }}>
+    <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '28px' }}>
       <div>
         <h1 style={{ fontSize: isSimple ? '2.4rem' : '1.8rem', color: 'var(--color-primary-900)' }}>
           User Preferences & Settings

@@ -7,13 +7,16 @@ import { StatusBadge } from '../../components/ui/StatusBadge';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { Users, FileText, Clock, GitPullRequest, ArrowRight, Shield } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { SkeletonMetrics, SkeletonCard } from '../../components/ui/skeleton';
 
 export const AdminDashboardPage: React.FC = () => {
-  const { employees, applications, queueTokens, services } = useData();
+  const { employees, applications, queueTokens, services, changeRequests: contextCRs } = useData();
   const navigate = useNavigate();
   const [dbChangeRequests, setDbChangeRequests] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let isMounted = true;
     const fetchCRs = async () => {
       try {
         const { data: sessionData } = await supabase.auth.getSession();
@@ -23,7 +26,7 @@ export const AdminDashboardPage: React.FC = () => {
         });
         if (res.ok) {
           const json = await res.json();
-          if (json.success && Array.isArray(json.data)) {
+          if (json.success && Array.isArray(json.data) && isMounted) {
             setDbChangeRequests(json.data);
             return;
           }
@@ -32,18 +35,34 @@ export const AdminDashboardPage: React.FC = () => {
           .from('service_change_requests')
           .select('*, services(name, code)')
           .order('submitted_at', { ascending: false });
-        if (data) setDbChangeRequests(data);
+        if (data && isMounted) setDbChangeRequests(data);
       } catch (e) {
         console.warn('Dashboard CR fetch error:', e);
+      } finally {
+        if (isMounted) setLoading(false);
       }
     };
     fetchCRs();
+    const interval = setInterval(fetchCRs, 2000);
+
+    const channel = supabase
+      .channel('realtime_admin_dashboard_channel')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'service_change_requests' }, () => {
+        fetchCRs();
+      })
+      .subscribe();
+
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   const activeEmployees = employees.filter((e) => e.isActive).length;
   const waitingTokens = queueTokens.filter((q) => q.status === 'WAITING').length;
-  const changeRequests = dbChangeRequests;
-  const pendingCRs = changeRequests.filter((c) => c.status === 'PENDING').length;
+  const changeRequests = dbChangeRequests.length > 0 ? dbChangeRequests : (contextCRs as any[]);
+  const pendingCRs = changeRequests.filter((c: any) => c.status === 'PENDING').length;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '28px' }}>
@@ -67,24 +86,28 @@ export const AdminDashboardPage: React.FC = () => {
       </div>
 
       {/* METRICS GRID */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px' }}>
-        {[
-          { label: 'Active Employees', value: activeEmployees, sub: 'Counters operational', icon: <Users size={24} />, color: 'var(--color-primary-700)' },
-          { label: 'Applications Today', value: applications.length, sub: 'Submitted online', icon: <FileText size={24} />, color: 'var(--color-info-700)' },
-          { label: 'People Waiting', value: waitingTokens, sub: 'In virtual queue', icon: <Clock size={24} />, color: 'var(--color-accent-600)' },
-          { label: 'Active Services', value: services.length, sub: 'Department catalog', icon: <Shield size={24} />, color: 'var(--color-success-700)' },
-          { label: 'Pending Change Requests', value: pendingCRs, sub: 'Awaiting Super Admin', icon: <GitPullRequest size={24} />, color: '#684A6B' },
-        ].map((m, idx) => (
-          <Card key={idx} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: '0.85rem', color: 'var(--color-neutral-600)', fontWeight: 600 }}>{m.label}</span>
-              <div style={{ color: m.color }}>{m.icon}</div>
-            </div>
-            <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--color-neutral-900)' }}>{m.value}</div>
-            <span style={{ fontSize: '0.8rem', color: 'var(--color-neutral-500)' }}>{m.sub}</span>
-          </Card>
-        ))}
-      </div>
+      {loading && services.length === 0 ? (
+        <SkeletonMetrics count={5} />
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px' }}>
+          {[
+            { label: 'Active Employees', value: activeEmployees, sub: 'Counters operational', icon: <Users size={24} />, color: 'var(--color-primary-700)' },
+            { label: 'Applications Today', value: applications.length, sub: 'Submitted online', icon: <FileText size={24} />, color: 'var(--color-info-700)' },
+            { label: 'People Waiting', value: waitingTokens, sub: 'In virtual queue', icon: <Clock size={24} />, color: 'var(--color-accent-600)' },
+            { label: 'Active Services', value: services.length, sub: 'Department catalog', icon: <Shield size={24} />, color: 'var(--color-success-700)' },
+            { label: 'Pending Change Requests', value: pendingCRs, sub: 'Awaiting Super Admin', icon: <GitPullRequest size={24} />, color: '#684A6B' },
+          ].map((m, idx) => (
+            <Card key={idx} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '0.85rem', color: 'var(--color-neutral-600)', fontWeight: 600 }}>{m.label}</span>
+                <div style={{ color: m.color }}>{m.icon}</div>
+              </div>
+              <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--color-neutral-900)' }}>{m.value}</div>
+              <span style={{ fontSize: '0.8rem', color: 'var(--color-neutral-500)' }}>{m.sub}</span>
+            </Card>
+          ))}
+        </div>
+      )}
 
       {/* RECENT CHANGE REQUESTS PREVIEW */}
       <Card>
@@ -102,7 +125,9 @@ export const AdminDashboardPage: React.FC = () => {
           </Button>
         </div>
 
-        {changeRequests.length === 0 ? (
+        {loading ? (
+          <SkeletonCard />
+        ) : changeRequests.length === 0 ? (
           <EmptyState
             title="No change requests submitted"
             description="Propose document requirement modifications when needed."

@@ -65,7 +65,7 @@ export const ServiceDetailPage: React.FC = () => {
   };
 
   return (
-    <div style={{ maxWidth: '1120px', margin: '0 auto', padding: '40px 24px', display: 'flex', flexDirection: 'column', gap: '32px' }}>
+    <div style={{ width: '100%', padding: '40px 32px', display: 'flex', flexDirection: 'column', gap: '32px' }}>
       {/* Top Header Card */}
       <Card style={{ backgroundColor: 'var(--color-primary-900)', color: 'white', padding: isSimple ? '36px' : '32px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '16px' }}>

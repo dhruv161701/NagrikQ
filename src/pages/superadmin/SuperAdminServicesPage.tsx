@@ -5,6 +5,7 @@ import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { Modal } from '../../components/ui/Modal';
 import { Input } from '../../components/ui/Input';
+import { SkeletonCard } from '../../components/ui/skeleton';
 import { ToastContainer } from '../../components/ui/Toast';
 import type { ToastMessage } from '../../components/ui/Toast';
 import {
@@ -212,6 +213,22 @@ export const SuperAdminServicesPage: React.FC = () => {
 
   useEffect(() => {
     fetchServices();
+    const interval = setInterval(fetchServices, 2500);
+
+    const channel = supabase
+      .channel('realtime_superadmin_services')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'services' }, () => {
+        fetchServices();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'document_requirements' }, () => {
+        fetchServices();
+      })
+      .subscribe();
+
+    return () => {
+      clearInterval(interval);
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   const fetchServices = async () => {
@@ -604,8 +621,10 @@ export const SuperAdminServicesPage: React.FC = () => {
 
       {/* Services Grid */}
       {loading ? (
-        <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--color-neutral-500)' }}>
-          Loading services catalog...
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: '20px' }}>
+          {Array.from({ length: 6 }).map((_, i) => (
+            <SkeletonCard key={i} />
+          ))}
         </div>
       ) : filteredServices.length === 0 ? (
         <Card padding="40px" style={{ textAlign: 'center' }}>

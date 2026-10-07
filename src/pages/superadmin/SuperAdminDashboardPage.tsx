@@ -6,6 +6,7 @@ import { StatusBadge } from '../../components/ui/StatusBadge';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { Users, Building, GitPullRequest, Shield, ArrowRight } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { SkeletonMetrics, SkeletonTable } from '../../components/ui/skeleton';
 
 export const SuperAdminDashboardPage: React.FC = () => {
   const { offices, employees, services, changeRequests, auditLogs } = useData();
@@ -17,7 +18,7 @@ export const SuperAdminDashboardPage: React.FC = () => {
     <div style={{ display: 'flex', flexDirection: 'column', gap: '28px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
         <div>
-          <span style={{ fontSize: '0.85rem', color: '#6B21A8', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '1px' }}>
+          <span style={{ fontSize: '0.85rem', color: 'var(--color-primary-700)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '1px' }}>
             GLOBAL STATE SYSTEM CONTROL
           </span>
           <h1 style={{ fontSize: '1.8rem', color: 'var(--color-primary-900)', marginTop: '2px' }}>
@@ -35,14 +36,17 @@ export const SuperAdminDashboardPage: React.FC = () => {
       </div>
 
       {/* METRICS GRID */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px' }}>
-        {[
-          { label: 'Total Registered Citizens', value: 0, sub: 'Across Gujarat State', icon: <Users size={24} />, color: 'var(--color-primary-700)' },
-          { label: 'Active Government Offices', value: offices.length, sub: 'District Jan Seva Kendras', icon: <Building size={24} />, color: 'var(--color-info-700)' },
-          { label: 'Active Counter Employees', value: employees.length, sub: 'Verified officers', icon: <Users size={24} />, color: 'var(--color-success-700)' },
-          { label: 'State Services Catalog', value: services.length, sub: 'Digital Seva Portal', icon: <Shield size={24} />, color: 'var(--color-accent-600)' },
-          { label: 'Pending Change Requests', value: pendingRequests.length, sub: 'Requires Review', icon: <GitPullRequest size={24} />, color: '#6B21A8' },
-        ].map((m, idx) => (
+      {services.length === 0 ? (
+        <SkeletonMetrics count={5} />
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px' }}>
+          {[
+            { label: 'Total Registered Citizens', value: 0, sub: 'Across Gujarat State', icon: <Users size={24} />, color: 'var(--color-primary-700)' },
+            { label: 'Active Government Offices', value: offices.length, sub: 'District Jan Seva Kendras', icon: <Building size={24} />, color: 'var(--color-info-700)' },
+            { label: 'Active Counter Employees', value: employees.length, sub: 'Verified officers', icon: <Users size={24} />, color: 'var(--color-success-700)' },
+            { label: 'State Services Catalog', value: services.length, sub: 'Digital Seva Portal', icon: <Shield size={24} />, color: 'var(--color-accent-600)' },
+            { label: 'Pending Change Requests', value: pendingRequests.length, sub: 'Requires Review', icon: <GitPullRequest size={24} />, color: 'var(--color-primary-700)' },
+          ].map((m, idx) => (
           <Card key={idx} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={{ fontSize: '0.85rem', color: 'var(--color-neutral-600)', fontWeight: 600 }}>{m.label}</span>

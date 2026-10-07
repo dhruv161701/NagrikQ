@@ -6,6 +6,7 @@ import type { Column } from '../../components/ui/Table';
 import { Badge } from '../../components/ui/Badge';
 import { Modal } from '../../components/ui/Modal';
 import { Input } from '../../components/ui/Input';
+import { SkeletonTable } from '../../components/ui/skeleton';
 import { Plus, CheckCircle, AlertCircle } from 'lucide-react';
 
 interface StaffEmployee {
@@ -30,6 +31,7 @@ interface StaffEmployee {
 export const AdminEmployeesPage: React.FC = () => {
   const [employees, setEmployees] = useState<StaffEmployee[]>([]);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   // Form State
   const [fullName, setFullName] = useState('');
@@ -49,6 +51,7 @@ export const AdminEmployeesPage: React.FC = () => {
 
   const fetchEmployees = async () => {
     try {
+      setLoading(true);
       const { data: sessionData } = await supabase.auth.getSession();
       const token = sessionData?.session?.access_token || '';
 
@@ -63,11 +66,26 @@ export const AdminEmployeesPage: React.FC = () => {
       }
     } catch (err) {
       console.warn('Failed to fetch employees:', err);
+    } finally {
+      setLoading(false);
     }
   };
 
   useEffect(() => {
     fetchEmployees();
+    const interval = setInterval(fetchEmployees, 2500);
+
+    const channel = supabase
+      .channel('realtime_admin_employees')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'employees' }, () => {
+        fetchEmployees();
+      })
+      .subscribe();
+
+    return () => {
+      clearInterval(interval);
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   const handleCreateEmployee = async (e: React.FormEvent) => {
@@ -171,7 +189,7 @@ export const AdminEmployeesPage: React.FC = () => {
     {
       key: 'counter_number',
       header: 'Assigned Counter',
-      render: (row) => <Badge variant="blue">{row.counter_number || 'C-01'}</Badge>,
+      render: (row) => <Badge variant="neutral">{row.counter_number || 'C-01'}</Badge>,
     },
     {
       key: 'aadhaar_last4',
@@ -214,12 +232,16 @@ export const AdminEmployeesPage: React.FC = () => {
         </Button>
       </div>
 
-      <Table
-        columns={columns}
-        data={employees}
-        keyExtractor={(row) => row.id || row.employee_id}
-        emptyMessage="No counter employees created yet. Click 'Add Counter Officer' to provision an employee account."
-      />
+      {loading ? (
+        <SkeletonTable rows={5} cols={6} />
+      ) : (
+        <Table
+          columns={columns}
+          data={employees}
+          keyExtractor={(row) => row.id || row.employee_id}
+          emptyMessage="No counter employees created yet. Click 'Add Counter Officer' to provision an employee account."
+        />
+      )}
 
       {/* Create Employee Wizard Modal */}
       <Modal isOpen={isAddModalOpen} onClose={() => setIsAddModalOpen(false)} title="Create Counter Officer Account">

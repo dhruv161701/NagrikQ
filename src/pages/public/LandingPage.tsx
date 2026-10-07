@@ -39,8 +39,8 @@ export const LandingPage: React.FC = () => {
       >
         <div
           style={{
-            maxWidth: '1280px',
-            margin: '0 auto',
+            width: '100%',
+            padding: '0 32px',
             display: 'grid',
             gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))',
             gap: '48px',
@@ -139,7 +139,7 @@ export const LandingPage: React.FC = () => {
       </section>
 
       {/* POPULAR GOVERNMENT SERVICES */}
-      <section style={{ maxWidth: '1280px', margin: '0 auto', padding: '0 24px', width: '100%' }}>
+      <section style={{ width: '100%', padding: '0 32px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '32px', flexWrap: 'wrap', gap: '16px' }}>
           <div>
             <span style={{ color: 'var(--color-primary-700)', fontWeight: 700, fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '1px' }}>
@@ -169,8 +169,8 @@ export const LandingPage: React.FC = () => {
       </section>
 
       {/* HOW NAGRIKQ WORKS (6 STEPS) */}
-      <section id="how-it-works" style={{ backgroundColor: 'var(--color-bg-card)', padding: '80px 24px', borderTop: '1px solid var(--color-border)', borderBottom: '1px solid var(--color-border)' }}>
-        <div style={{ maxWidth: '1280px', margin: '0 auto' }}>
+      <section id="how-it-works" style={{ backgroundColor: 'var(--color-bg-card)', padding: '80px 32px', borderTop: '1px solid var(--color-border)', borderBottom: '1px solid var(--color-border)', width: '100%' }}>
+        <div style={{ width: '100%' }}>
           <div style={{ textAlign: 'center', maxWidth: '640px', margin: '0 auto 48px' }}>
             <span style={{ color: 'var(--color-accent-600)', fontWeight: 700, fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '1px' }}>
               Step-by-Step Guidance
@@ -228,7 +228,7 @@ export const LandingPage: React.FC = () => {
       </section>
 
       {/* AI ASSISTANT SECTION */}
-      <section id="ai-assistant" style={{ maxWidth: '1280px', margin: '0 auto', padding: '0 24px', width: '100%' }}>
+      <section id="ai-assistant" style={{ width: '100%', padding: '0 32px' }}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '48px', alignItems: 'center' }}>
           <div>
             <span style={{ color: 'var(--color-primary-700)', fontWeight: 700, fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '1px' }}>
@@ -260,8 +260,8 @@ export const LandingPage: React.FC = () => {
       </section>
 
       {/* WHY NAGRIKQ */}
-      <section style={{ backgroundColor: 'var(--color-bg-card)', padding: '80px 24px', borderTop: '1px solid var(--color-border)', borderBottom: '1px solid var(--color-border)' }}>
-        <div style={{ maxWidth: '1280px', margin: '0 auto' }}>
+      <section style={{ backgroundColor: 'var(--color-bg-card)', padding: '80px 32px', borderTop: '1px solid var(--color-border)', borderBottom: '1px solid var(--color-border)', width: '100%' }}>
+        <div style={{ width: '100%' }}>
           <div style={{ textAlign: 'center', maxWidth: '600px', margin: '0 auto 48px' }}>
             <h2 style={{ fontSize: isSimple ? '2.4rem' : '2rem', color: 'var(--color-primary-900)' }}>
               Why Citizens Choose NagrikQ
@@ -299,7 +299,7 @@ export const LandingPage: React.FC = () => {
       </section>
 
       {/* SUPPORTED LANGUAGES */}
-      <section style={{ maxWidth: '1280px', margin: '0 auto', padding: '0 24px', textAlign: 'center', width: '100%' }}>
+      <section style={{ width: '100%', padding: '0 32px', textAlign: 'center' }}>
         <h3 style={{ fontSize: '1.4rem', color: 'var(--color-primary-900)', marginBottom: '20px' }}>
           Accessible in Your Native Language
         </h3>

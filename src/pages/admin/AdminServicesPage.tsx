@@ -5,6 +5,7 @@ import { Badge } from '../../components/ui/Badge';
 import { Modal } from '../../components/ui/Modal';
 import { Input } from '../../components/ui/Input';
 import { EmptyState } from '../../components/ui/EmptyState';
+import { SkeletonCard } from '../../components/ui/skeleton';
 import { Plus, GitPullRequest, Search, Clock, CheckCircle2, AlertCircle, Edit } from 'lucide-react';
 
 interface ServiceItem {
@@ -142,6 +143,22 @@ export const AdminServicesPage: React.FC = () => {
 
   useEffect(() => {
     fetchServices();
+    const interval = setInterval(fetchServices, 2500);
+
+    const channel = supabase
+      .channel('realtime_admin_services')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'services' }, () => {
+        fetchServices();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'document_requirements' }, () => {
+        fetchServices();
+      })
+      .subscribe();
+
+    return () => {
+      clearInterval(interval);
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   const handleOpenCRModal = (serviceId?: string) => {
@@ -284,8 +301,10 @@ export const AdminServicesPage: React.FC = () => {
 
       {/* Service Grid */}
       {loading ? (
-        <div style={{ textAlign: 'center', padding: '40px', color: 'var(--color-neutral-600)' }}>
-          Loading departmental service catalog...
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '24px' }}>
+          {Array.from({ length: 6 }).map((_, i) => (
+            <SkeletonCard key={i} />
+          ))}
         </div>
       ) : filteredServices.length === 0 ? (
         <EmptyState
@@ -312,7 +331,7 @@ export const AdminServicesPage: React.FC = () => {
               <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
                   <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                    <Badge variant="blue">{srv.category}</Badge>
+                    <Badge variant="neutral">{srv.category}</Badge>
                     <Badge variant={srv.is_active ? 'green' : 'neutral'}>
                       {srv.is_active ? 'Active' : 'Inactive'}
                     </Badge>

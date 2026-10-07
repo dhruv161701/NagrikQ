@@ -29,9 +29,8 @@ export const Navbar: React.FC = () => {
     >
       <div
         style={{
-          maxWidth: '1280px',
-          margin: '0 auto',
-          padding: '0 24px',
+          width: '100%',
+          padding: '0 32px',
           height: '70px',
           display: 'flex',
           alignItems: 'center',

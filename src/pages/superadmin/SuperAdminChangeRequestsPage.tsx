@@ -64,7 +64,10 @@ export const SuperAdminChangeRequestsPage: React.FC = () => {
       )
       .subscribe();
 
+    const interval = setInterval(fetchChangeRequests, 2500);
+
     return () => {
+      clearInterval(interval);
       supabase.removeChannel(channel);
     };
   }, []);

@@ -5,6 +5,7 @@ import { ServiceCard } from '../../components/government/ServiceCard';
 import { SearchBar } from '../../components/ui/SearchBar';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { Button } from '../../components/ui/Button';
+import { SkeletonCard } from '../../components/ui/skeleton';
 import { useNavigate } from 'react-router-dom';
 import { RefreshCw } from 'lucide-react';
 
@@ -78,7 +79,13 @@ export const UserServicesPage: React.FC = () => {
         </div>
       </div>
 
-      {filtered.length === 0 ? (
+      {refreshing ? (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '24px' }}>
+          {Array.from({ length: 6 }).map((_, i) => (
+            <SkeletonCard key={i} />
+          ))}
+        </div>
+      ) : filtered.length === 0 ? (
         <EmptyState
           title="No Services Found"
           description={query ? `No government services match "${query}". Try another search term.` : 'No services available in this category.'}

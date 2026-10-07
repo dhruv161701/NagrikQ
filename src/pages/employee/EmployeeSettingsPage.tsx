@@ -70,7 +70,7 @@ export const EmployeeSettingsPage: React.FC = () => {
   };
 
   return (
-    <div style={{ maxWidth: '820px', display: 'flex', flexDirection: 'column', gap: '24px' }}>
+    <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '24px' }}>
       <div>
         <h1 style={{ fontSize: '1.8rem', color: 'var(--color-primary-900)' }}>
           Counter Officer Shift & Service Settings

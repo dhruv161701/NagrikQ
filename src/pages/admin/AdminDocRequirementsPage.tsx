@@ -4,6 +4,7 @@ import { Card } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { Badge } from '../../components/ui/Badge';
 import { EmptyState } from '../../components/ui/EmptyState';
+import { SkeletonCard } from '../../components/ui/skeleton';
 import { SearchBar } from '../../components/ui/SearchBar';
 import { useNavigate } from 'react-router-dom';
 import { GitPullRequest, RefreshCw, FileCheck2 } from 'lucide-react';
@@ -50,7 +51,13 @@ export const AdminDocRequirementsPage: React.FC = () => {
 
       <SearchBar value={query} onChange={setQuery} placeholder="Search service document requirements by name, category or code..." />
 
-      {filteredServices.length === 0 ? (
+      {refreshing ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+          {Array.from({ length: 4 }).map((_, i) => (
+            <SkeletonCard key={i} />
+          ))}
+        </div>
+      ) : filteredServices.length === 0 ? (
         <EmptyState
           title="No services found"
           description="No government services match your search or exist to display document requirements."
@@ -62,7 +69,7 @@ export const AdminDocRequirementsPage: React.FC = () => {
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
                 <div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <Badge variant="blue">{srv.category}</Badge>
+                    <Badge variant="neutral">{srv.category}</Badge>
                     <span style={{ fontSize: '0.85rem', color: 'var(--color-neutral-500)', fontWeight: 600 }}>
                       CODE: {srv.code}
                     </span>

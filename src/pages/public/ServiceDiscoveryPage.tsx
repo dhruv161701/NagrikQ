@@ -37,7 +37,7 @@ export const ServiceDiscoveryPage: React.FC = () => {
   });
 
   return (
-    <div style={{ maxWidth: '1280px', margin: '0 auto', padding: '40px 24px', display: 'flex', flexDirection: 'column', gap: '32px' }}>
+    <div style={{ width: '100%', padding: '40px 32px', display: 'flex', flexDirection: 'column', gap: '32px' }}>
       <div>
         <span style={{ color: 'var(--color-primary-700)', fontWeight: 700, fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '1px' }}>
           Government Portal Directory

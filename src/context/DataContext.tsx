@@ -25,6 +25,7 @@ interface DataContextType {
   refreshServices: () => Promise<void>;
   refreshApplications: () => Promise<void>;
   refreshQueueTokens: () => Promise<void>;
+  refreshChangeRequests: () => Promise<void>;
   getServiceById: (id: string) => Service | undefined;
   getUserActiveToken: (userId: string) => QueueToken | undefined;
   getUserApplications: (userId: string) => Application[];
@@ -115,11 +116,33 @@ const mapDBTokenToQueueToken = (row: any): QueueToken => ({
   status: row.status || 'WAITING',
 });
 
+const mapDBChangeRequestToChangeRequest = (row: any): ChangeRequest => ({
+  id: row.id,
+  requestNumber: row.request_number || `CR-${row.id.slice(0, 6)}`,
+  serviceId: row.service_id,
+  serviceName: row.services?.name || row.service_name || 'Government Service',
+  requestedByAdminId: row.requested_by_admin_id || row.admin_id || '',
+  requestedByAdminName: row.requested_by_admin_name || row.admin_name || 'Mamlatdar Admin',
+  officeName: row.office_name || 'Rajkot District Collector Office',
+  currentDocumentIds: row.current_document_ids || [],
+  currentDocumentNames: row.current_document_names || [],
+  proposedDocumentIds: row.proposed_document_ids || [],
+  proposedDocumentNames: row.proposed_document_names || [],
+  addedDocumentName: row.added_document_name || 'Document Proof',
+  reason: row.reason || '',
+  status: row.status || 'PENDING',
+  submittedAt: new Date(row.submitted_at || Date.now()).toLocaleDateString(),
+  reviewedAt: row.reviewed_at ? new Date(row.reviewed_at).toLocaleDateString() : undefined,
+  reviewedBySuperAdminName: row.reviewed_by_name,
+  reviewNote: row.review_note,
+});
+
 export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [, setTick] = useState(0);
   const [dbServices, setDbServices] = useState<Service[]>(() => mockRepository.getServices());
   const [dbApplications, setDbApplications] = useState<Application[]>(() => mockRepository.getApplications());
   const [dbQueueTokens, setDbQueueTokens] = useState<QueueToken[]>(() => mockRepository.getQueueTokens());
+  const [dbChangeRequests, setDbChangeRequests] = useState<ChangeRequest[]>(() => mockRepository.getChangeRequests());
 
   // 1. Fetch Services
   const fetchServicesFromAPI = useCallback(async () => {
@@ -210,11 +233,43 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, []);
 
+  // 4. Fetch Change Requests
+  const fetchChangeRequestsFromAPI = useCallback(async () => {
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData?.session?.access_token || '';
+
+      const res = await fetch('/api/change-requests', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (res.ok) {
+        const json = await res.json();
+        if (json.success && Array.isArray(json.data) && json.data.length > 0) {
+          setDbChangeRequests(json.data.map(mapDBChangeRequestToChangeRequest));
+          return;
+        }
+      }
+
+      const { data, error } = await supabase
+        .from('service_change_requests')
+        .select('*, services(name, code)')
+        .order('submitted_at', { ascending: false });
+
+      if (!error && data && data.length > 0) {
+        setDbChangeRequests(data.map(mapDBChangeRequestToChangeRequest));
+      }
+    } catch (err) {
+      console.warn('[DataContext] Failed to fetch change requests:', err);
+    }
+  }, []);
+
   // Initial loads and Realtime subscriptions
   useEffect(() => {
     fetchServicesFromAPI();
     fetchApplicationsFromAPI();
     fetchQueueTokensFromAPI();
+    fetchChangeRequestsFromAPI();
 
     const channel = supabase
       .channel('realtime_data_context_channel')
@@ -233,12 +288,24 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       .on('postgres_changes', { event: '*', schema: 'public', table: 'documents' }, () => {
         fetchApplicationsFromAPI();
       })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'service_change_requests' }, () => {
+        fetchChangeRequestsFromAPI();
+      })
       .subscribe();
 
+    // Fast polling fallback every 2000ms for continuous live data across all active pages & tabs
+    const interval = setInterval(() => {
+      fetchApplicationsFromAPI();
+      fetchQueueTokensFromAPI();
+      fetchChangeRequestsFromAPI();
+      fetchServicesFromAPI();
+    }, 2000);
+
     return () => {
+      clearInterval(interval);
       supabase.removeChannel(channel);
     };
-  }, [fetchServicesFromAPI, fetchApplicationsFromAPI, fetchQueueTokensFromAPI]);
+  }, [fetchServicesFromAPI, fetchApplicationsFromAPI, fetchQueueTokensFromAPI, fetchChangeRequestsFromAPI]);
 
   useEffect(() => {
     const unsub = mockRepository.subscribe(() => {
@@ -254,7 +321,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const employees = mockRepository.getEmployees();
   const applications = dbApplications.length > 0 ? dbApplications : mockRepository.getApplications();
   const queueTokens = dbQueueTokens.length > 0 ? dbQueueTokens : mockRepository.getQueueTokens();
-  const changeRequests = mockRepository.getChangeRequests();
+  const changeRequests = dbChangeRequests.length > 0 ? dbChangeRequests : mockRepository.getChangeRequests();
   const auditLogs = mockRepository.getAuditLogs();
   const notifications = mockRepository.getNotifications('');
 
@@ -497,6 +564,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         refreshServices: fetchServicesFromAPI,
         refreshApplications: fetchApplicationsFromAPI,
         refreshQueueTokens: fetchQueueTokensFromAPI,
+        refreshChangeRequests: fetchChangeRequestsFromAPI,
         getServiceById: (id) => services.find((s) => s.id === id) || mockRepository.getServiceById(id),
         getUserActiveToken: (userId) =>
           queueTokens.find(

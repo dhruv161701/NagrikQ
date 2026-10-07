@@ -15,8 +15,7 @@ export const Footer: React.FC = () => {
     >
       <div
         style={{
-          maxWidth: '1280px',
-          margin: '0 auto',
+          width: '100%',
           display: 'grid',
           gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
           gap: '36px',

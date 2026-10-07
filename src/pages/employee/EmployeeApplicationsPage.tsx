@@ -7,6 +7,7 @@ import { StatusBadge } from '../../components/ui/StatusBadge';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { Modal } from '../../components/ui/Modal';
 import { EmptyState } from '../../components/ui/EmptyState';
+import { SkeletonTable } from '../../components/ui/skeleton';
 import {
   CheckCircle,
   XCircle,
@@ -450,7 +451,9 @@ export const EmployeeApplicationsPage: React.FC = () => {
           </span>
         </div>
 
-        {visibleApplications.length === 0 ? (
+        {refreshing ? (
+          <SkeletonTable rows={5} cols={5} />
+        ) : visibleApplications.length === 0 ? (
           <EmptyState
             title={
               onlyAssignedFilter && selectedServiceIds.length === 0

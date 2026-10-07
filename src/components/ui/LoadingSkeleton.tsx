@@ -1,4 +1,7 @@
 import React from 'react';
+import { Skeleton, SkeletonCard, SkeletonTable, SkeletonMetrics } from './skeleton';
+
+export { Skeleton, SkeletonCard, SkeletonTable, SkeletonMetrics };
 
 export const LoadingSkeleton: React.FC<{ height?: string; width?: string; count?: number }> = ({
   height = '48px',
@@ -8,14 +11,11 @@ export const LoadingSkeleton: React.FC<{ height?: string; width?: string; count?
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', width: '100%' }}>
       {Array.from({ length: count }).map((_, i) => (
-        <div
+        <Skeleton
           key={i}
-          className="animate-pulse-subtle"
           style={{
             height,
             width,
-            backgroundColor: 'var(--color-neutral-200)',
-            borderRadius: 'var(--radius-md)',
           }}
         />
       ))}
