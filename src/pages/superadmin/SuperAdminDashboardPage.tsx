@@ -6,7 +6,7 @@ import { StatusBadge } from '../../components/ui/StatusBadge';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { Users, Building, GitPullRequest, Shield, ArrowRight } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { SkeletonMetrics, SkeletonTable } from '../../components/ui/skeleton';
+import { SkeletonMetrics } from '../../components/ui/skeleton';
 
 export const SuperAdminDashboardPage: React.FC = () => {
   const { offices, employees, services, changeRequests, auditLogs } = useData();
@@ -56,7 +56,8 @@ export const SuperAdminDashboardPage: React.FC = () => {
             <span style={{ fontSize: '0.8rem', color: 'var(--color-neutral-500)' }}>{m.sub}</span>
           </Card>
         ))}
-      </div>
+        </div>
+      )}
 
       {/* PENDING CHANGE REQUEST REVIEW BANNER */}
       {pendingRequests.length > 0 && (

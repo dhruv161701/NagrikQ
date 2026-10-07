@@ -12,6 +12,7 @@ import type {
 } from '../types';
 import { mockRepository } from '../services/repositories';
 import { supabase } from '../config/supabase';
+import { useAuth } from './AuthContext';
 
 interface DataContextType {
   services: Service[];
@@ -138,13 +139,14 @@ const mapDBChangeRequestToChangeRequest = (row: any): ChangeRequest => ({
 });
 
 export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { currentUser, isAuthenticated } = useAuth();
   const [, setTick] = useState(0);
   const [dbServices, setDbServices] = useState<Service[]>(() => mockRepository.getServices());
   const [dbApplications, setDbApplications] = useState<Application[]>(() => mockRepository.getApplications());
   const [dbQueueTokens, setDbQueueTokens] = useState<QueueToken[]>(() => mockRepository.getQueueTokens());
   const [dbChangeRequests, setDbChangeRequests] = useState<ChangeRequest[]>(() => mockRepository.getChangeRequests());
 
-  // 1. Fetch Services
+  // 1. Fetch Services (Public - no auth required)
   const fetchServicesFromAPI = useCallback(async () => {
     try {
       const res = await fetch('/api/services');
@@ -169,11 +171,15 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, []);
 
-  // 2. Fetch Applications
+  // 2. Fetch Applications (Requires authenticated session)
   const fetchApplicationsFromAPI = useCallback(async () => {
     try {
       const { data: sessionData } = await supabase.auth.getSession();
-      const token = sessionData?.session?.access_token || '';
+      const token = sessionData?.session?.access_token;
+      if (!token) {
+        // Unauthenticated visitor: do not fire protected API endpoint
+        return;
+      }
 
       const res = await fetch('/api/applications', {
         headers: { Authorization: `Bearer ${token}` },
@@ -201,11 +207,29 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, []);
 
-  // 3. Fetch Queue Tokens
-  const fetchQueueTokensFromAPI = useCallback(async () => {
+  // 3. Fetch Queue Tokens (Protected - officer queue requires employee/admin/superadmin role)
+  const fetchQueueTokensFromAPI = useCallback(async (forcedRole?: string) => {
     try {
       const { data: sessionData } = await supabase.auth.getSession();
-      const token = sessionData?.session?.access_token || '';
+      const token = sessionData?.session?.access_token;
+      if (!token) {
+        // Unauthenticated visitor: do not fire protected API endpoint
+        return;
+      }
+
+      const role = forcedRole || currentUser?.role;
+      // If citizen, read via Supabase direct query to avoid 403 Forbidden from officer endpoint
+      if (role && !['employee', 'admin', 'superadmin'].includes(role)) {
+        const { data, error } = await supabase
+          .from('queue_tokens')
+          .select('*, services(id, name, code, category), offices(id, name), profiles:user_id(id, full_name, phone)')
+          .order('created_at', { ascending: true });
+
+        if (!error && data && data.length > 0) {
+          setDbQueueTokens(data.map(mapDBTokenToQueueToken));
+        }
+        return;
+      }
 
       const res = await fetch('/api/queue/tokens', {
         headers: { Authorization: `Bearer ${token}` },
@@ -231,13 +255,22 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch (err) {
       console.warn('[DataContext] Failed to fetch queue tokens:', err);
     }
-  }, []);
+  }, [currentUser?.role]);
 
-  // 4. Fetch Change Requests
-  const fetchChangeRequestsFromAPI = useCallback(async () => {
+  // 4. Fetch Change Requests (Protected - requires admin or superadmin role)
+  const fetchChangeRequestsFromAPI = useCallback(async (forcedRole?: string) => {
     try {
       const { data: sessionData } = await supabase.auth.getSession();
-      const token = sessionData?.session?.access_token || '';
+      const token = sessionData?.session?.access_token;
+      if (!token) {
+        // Unauthenticated visitor: do not fire protected API endpoint
+        return;
+      }
+
+      const role = forcedRole || currentUser?.role;
+      if (role && !['admin', 'superadmin'].includes(role)) {
+        return;
+      }
 
       const res = await fetch('/api/change-requests', {
         headers: { Authorization: `Bearer ${token}` },
@@ -262,15 +295,38 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch (err) {
       console.warn('[DataContext] Failed to fetch change requests:', err);
     }
-  }, []);
+  }, [currentUser?.role]);
 
-  // Initial loads and Realtime subscriptions
+  // Keep stable reference to latest auth state for callbacks and socket listeners
+  const authRef = React.useRef({ isAuthenticated, role: currentUser?.role });
+  useEffect(() => {
+    authRef.current = { isAuthenticated, role: currentUser?.role };
+  }, [isAuthenticated, currentUser?.role]);
+
+  // 1. Initial loads whenever authentication state or user changes
   useEffect(() => {
     fetchServicesFromAPI();
-    fetchApplicationsFromAPI();
-    fetchQueueTokensFromAPI();
-    fetchChangeRequestsFromAPI();
 
+    if (isAuthenticated) {
+      fetchApplicationsFromAPI();
+      if (currentUser && ['employee', 'admin', 'superadmin'].includes(currentUser.role)) {
+        fetchQueueTokensFromAPI(currentUser.role);
+      }
+      if (currentUser && ['admin', 'superadmin'].includes(currentUser.role)) {
+        fetchChangeRequestsFromAPI(currentUser.role);
+      }
+    }
+  }, [
+    isAuthenticated,
+    currentUser?.role,
+    fetchServicesFromAPI,
+    fetchApplicationsFromAPI,
+    fetchQueueTokensFromAPI,
+    fetchChangeRequestsFromAPI,
+  ]);
+
+  // 2. Stable Supabase Realtime Channel (connects once, does not tear down on auth changes)
+  useEffect(() => {
     const channel = supabase
       .channel('realtime_data_context_channel')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'services' }, () => {
@@ -280,30 +336,42 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         fetchServicesFromAPI();
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'applications' }, () => {
-        fetchApplicationsFromAPI();
+        if (authRef.current.isAuthenticated) fetchApplicationsFromAPI();
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'queue_tokens' }, () => {
-        fetchQueueTokensFromAPI();
+        if (authRef.current.isAuthenticated) fetchQueueTokensFromAPI();
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'documents' }, () => {
-        fetchApplicationsFromAPI();
+        if (authRef.current.isAuthenticated) fetchApplicationsFromAPI();
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'service_change_requests' }, () => {
-        fetchChangeRequestsFromAPI();
-      })
-      .subscribe();
+        if (authRef.current.isAuthenticated) fetchChangeRequestsFromAPI();
+      });
 
-    // Fast polling fallback every 2000ms for continuous live data across all active pages & tabs
+    channel.subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [fetchServicesFromAPI, fetchApplicationsFromAPI, fetchQueueTokensFromAPI, fetchChangeRequestsFromAPI]);
+
+  // 3. Fast polling fallback every 2000ms for continuous live data across all active pages & tabs
+  useEffect(() => {
     const interval = setInterval(() => {
-      fetchApplicationsFromAPI();
-      fetchQueueTokensFromAPI();
-      fetchChangeRequestsFromAPI();
       fetchServicesFromAPI();
+      if (authRef.current.isAuthenticated) {
+        fetchApplicationsFromAPI();
+        if (authRef.current.role && ['employee', 'admin', 'superadmin'].includes(authRef.current.role)) {
+          fetchQueueTokensFromAPI(authRef.current.role);
+        }
+        if (authRef.current.role && ['admin', 'superadmin'].includes(authRef.current.role)) {
+          fetchChangeRequestsFromAPI(authRef.current.role);
+        }
+      }
     }, 2000);
 
     return () => {
       clearInterval(interval);
-      supabase.removeChannel(channel);
     };
   }, [fetchServicesFromAPI, fetchApplicationsFromAPI, fetchQueueTokensFromAPI, fetchChangeRequestsFromAPI]);
 

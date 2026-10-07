@@ -1,4 +1,3 @@
-import { type ClassValue, clsx } from 'clsx';
 // Standard shadcn/ui cn classnames merger
 export function cn(...inputs: (string | undefined | null | false | Record<string, boolean>)[]) {
   return inputs
