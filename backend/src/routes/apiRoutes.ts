@@ -55,6 +55,11 @@ import {
   getProfile,
   updateProfile,
 } from '../controllers/profileController';
+import {
+  uploadToCloudinary,
+  downloadFromCloudinary,
+  deleteFromCloudinary,
+} from '../controllers/uploadController';
 
 const router = Router();
 
@@ -89,6 +94,12 @@ router.post('/queue/tokens/:id/rebook', authenticateToken, rebookToken);
 
 router.post('/complaints', authenticateToken, submitComplaint);
 router.get('/complaints', authenticateToken, getComplaints);
+
+// CLOUDINARY UPLOAD & FILE ROUTES
+router.post('/upload/cloudinary', uploadToCloudinary);
+router.get('/upload/cloudinary/download', downloadFromCloudinary);
+router.post('/upload/cloudinary/download', downloadFromCloudinary);
+router.post('/upload/cloudinary/delete', deleteFromCloudinary);
 
 // ADMIN ROUTES
 router.post('/admin/employees', authenticateToken, requireRole('admin', 'superadmin'), createEmployeeUser);
