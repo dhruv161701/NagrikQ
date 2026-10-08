@@ -51,8 +51,7 @@ export const Sidebar: React.FC = () => {
     items = [
       { label: 'Dashboard', path: '/admin/dashboard', icon: <LayoutDashboard size={20} /> },
       { label: 'Employees', path: '/admin/employees', icon: <Users size={20} /> },
-      { label: 'Services Catalog', path: '/admin/services', icon: <FileText size={20} /> },
-      { label: 'Document Requirements', path: '/admin/document-requirements', icon: <FileCheck size={20} /> },
+      { label: 'Services & Documents', path: '/admin/services', icon: <FileText size={20} /> },
       { label: 'Change Requests', path: '/admin/change-requests', icon: <GitPullRequest size={20} /> },
       { label: 'Reports & Analytics', path: '/admin/reports', icon: <BarChart3 size={20} /> },
       { label: 'Audit Logs', path: '/admin/audit-logs', icon: <History size={20} /> },
@@ -80,6 +79,10 @@ export const Sidebar: React.FC = () => {
         justifyContent: 'space-between',
         padding: '20px 14px',
         flexShrink: 0,
+        position: 'sticky',
+        top: '70px',
+        height: 'calc(100vh - 70px)',
+        overflowY: 'auto',
       }}
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>

@@ -18,11 +18,19 @@ import {
   RefreshCw,
   Volume2,
   Users,
+  ArrowRight,
 } from 'lucide-react';
 
 export const EmployeeQueuePage: React.FC = () => {
   const { currentUser } = useAuth();
-  const { services, queueTokens, callNextToken, updateTokenStatus, refreshQueueTokens } = useData();
+  const {
+    services,
+    queueTokens,
+    callNextToken,
+    updateTokenStatus,
+    advanceTokenCounterStep,
+    refreshQueueTokens,
+  } = useData();
 
   const activeCounter = (currentUser as any)?.counterNumber ? `C-0${(currentUser as any).counterNumber}` : 'C-04';
 
@@ -164,76 +172,109 @@ export const EmployeeQueuePage: React.FC = () => {
     },
     {
       key: 'counterNumber',
-      header: 'Assigned Counter',
-      render: (row) => (
-        <span
-          style={{
-            fontWeight: 700,
-            padding: '4px 10px',
-            borderRadius: '6px',
-            backgroundColor: row.counterNumber === activeCounter ? 'var(--color-primary-100)' : 'var(--color-neutral-100)',
-            color: row.counterNumber === activeCounter ? 'var(--color-primary-800)' : 'var(--color-neutral-700)',
-            fontSize: '0.85rem',
-          }}
-        >
-          {row.counterNumber || 'Unassigned'}
-        </span>
-      ),
+      header: 'Assigned Counter / Step',
+      render: (row) => {
+        const path = row.counterPath || [];
+        const currentIdx = row.currentCounterIndex ?? 0;
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+            <span
+              style={{
+                fontWeight: 700,
+                padding: '4px 10px',
+                borderRadius: '6px',
+                backgroundColor: row.counterNumber === activeCounter ? 'var(--color-primary-100)' : 'var(--color-neutral-100)',
+                color: row.counterNumber === activeCounter ? 'var(--color-primary-800)' : 'var(--color-neutral-700)',
+                fontSize: '0.85rem',
+                width: 'fit-content',
+              }}
+            >
+              {row.counterNumber || 'Unassigned'}
+            </span>
+            {path.length > 1 && (
+              <span style={{ fontSize: '11px', color: 'var(--color-neutral-500)', fontWeight: 600 }}>
+                Step {currentIdx + 1} of {path.length} in route
+              </span>
+            )}
+          </div>
+        );
+      },
     },
     { key: 'issuedAt', header: 'Issued Time' },
     { key: 'status', header: 'Status', render: (row) => <StatusBadge status={row.status} /> },
     {
       key: 'actions',
       header: 'Actions',
-      render: (row) => (
-        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-          {row.status === 'WAITING' && (
-            <Button
-              variant="saffron"
-              size="sm"
-              onClick={() => updateTokenStatus(row.id, 'IN_SERVICE')}
-              icon={<Play size={13} />}
-            >
-              Call to {activeCounter}
-            </Button>
-          )}
-          {row.status === 'IN_SERVICE' && (
-            <>
+      render: (row) => {
+        const path = row.counterPath || [];
+        const currentIdx = row.currentCounterIndex ?? 0;
+        const hasNextCounter = path.length > 1 && currentIdx < path.length - 1;
+        const nextCounterName = hasNextCounter ? path[currentIdx + 1].split(':')[0].trim() : '';
+
+        return (
+          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+            {row.status === 'WAITING' && (
               <Button
-                variant="primary"
+                variant="saffron"
                 size="sm"
-                onClick={async () => {
-                  await updateTokenStatus(row.id, 'COMPLETED');
-                  await handleCallNext();
-                }}
-                icon={<CheckCircle size={13} />}
+                onClick={() => updateTokenStatus(row.id, 'IN_SERVICE')}
+                icon={<Play size={13} />}
               >
-                Complete & Call Next
+                Call to {activeCounter}
               </Button>
+            )}
+            {row.status === 'IN_SERVICE' && (
+              <>
+                {hasNextCounter && (
+                  <Button
+                    variant="saffron"
+                    size="sm"
+                    onClick={async () => {
+                      await advanceTokenCounterStep(row.id);
+                      await handleCallNext();
+                    }}
+                    icon={<ArrowRight size={13} />}
+                    style={{ fontWeight: 700 }}
+                  >
+                    Send to {nextCounterName} →
+                  </Button>
+                )}
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={async () => {
+                    await updateTokenStatus(row.id, 'COMPLETED');
+                    await handleCallNext();
+                  }}
+                  icon={<CheckCircle size={13} />}
+                >
+                  Complete & Next
+                </Button>
+                <Button
+                  variant="danger"
+                  size="sm"
+                  onClick={async () => {
+                    await updateTokenStatus(row.id, 'NO_SHOW');
+                    await handleCallNext();
+                  }}
+                  icon={<XCircle size={13} />}
+                >
+                  No Show
+                </Button>
+              </>
+            )}
+            {row.status === 'CALLED' && (
               <Button
-                variant="danger"
+                variant="saffron"
                 size="sm"
-                onClick={async () => {
-                  await updateTokenStatus(row.id, 'NO_SHOW');
-                  await handleCallNext();
-                }}
-                icon={<XCircle size={13} />}
+                onClick={() => updateTokenStatus(row.id, 'IN_SERVICE')}
               >
-                No Show & Next
+                Start Service
               </Button>
-            </>
-          )}
-          {row.status === 'CALLED' && (
-            <Button
-              variant="saffron"
-              size="sm"
-              onClick={() => updateTokenStatus(row.id, 'IN_SERVICE')}
-            >
-              Start Service
-            </Button>
-          )}
-        </div>
-      ),
+            )}
+          </div>
+        );
+      },
     },
   ];
 

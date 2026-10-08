@@ -82,10 +82,30 @@ export const mockRepository = {
       (q) => q.citizenId === userId && (q.status === 'WAITING' || q.status === 'CALLED' || q.status === 'IN_SERVICE')
     );
   },
-  issueQueueToken(citizenId: string, citizenName: string, citizenPhone: string, serviceId: string, serviceName: string): QueueToken {
+  issueQueueToken(
+    citizenId: string,
+    citizenName: string,
+    citizenPhone: string,
+    serviceId: string,
+    serviceName: string,
+    options?: any
+  ): QueueToken {
     const nextNum = 100 + queueState.length + 1;
     const tokenNum = `A${nextNum}`;
     const waitingTokens = queueState.filter((q) => q.status === 'WAITING');
+    
+    const officeId = typeof options === 'string' ? options : options?.officeId || 'off-001';
+    const timeSlot = typeof options === 'object' && options?.timeSlot ? options.timeSlot : '';
+    const slotDate = typeof options === 'object' && options?.slotDate ? options.slotDate : new Date().toISOString().split('T')[0];
+    const selectedState = typeof options === 'object' && options?.selectedState ? options.selectedState : 'Gujarat';
+    const selectedCity = typeof options === 'object' && options?.selectedCity ? options.selectedCity : 'Rajkot';
+    const counterPath = (typeof options === 'object' && Array.isArray(options.counterPath) && options.counterPath.length > 0)
+      ? options.counterPath
+      : ['Counter 1 (Intake)', 'Counter 3 (Verification)', 'Counter 5 (Dispatch)'];
+    const initialCounter = counterPath[0].split(':')[0].trim();
+
+    const submittedDocs = (typeof options === 'object' && Array.isArray(options.documents)) ? options.documents : [];
+
     const newToken: QueueToken = {
       id: `q-${Date.now()}`,
       tokenNumber: tokenNum,
@@ -94,22 +114,118 @@ export const mockRepository = {
       citizenPhone,
       serviceId,
       serviceName,
-      officeId: 'off-001',
-      officeName: 'Rajkot Mamlatdar Office (West)',
-      counterNumber: 'C-04',
+      officeId,
+      officeName: `${selectedCity} Jan Seva Kendra`,
+      counterNumber: initialCounter,
       issuedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       estimatedWaitMinutes: (waitingTokens.length + 1) * 4,
       peopleAhead: waitingTokens.length,
       status: 'WAITING',
+      timeSlot,
+      slotDate,
+      selectedState,
+      selectedCity,
+      counterPath,
+      currentCounterIndex: 0,
+      isLate: false,
+      gracePeriodMinutes: 15,
+      submittedDocuments: submittedDocs,
     };
     queueState = [...queueState, newToken];
+
+    // Also auto-create Application for the Employee Panel to view online submitted documents!
+    const appNum = `APP-${Math.floor(100000 + Math.random() * 900000)}`;
+    const newApp: Application = {
+      id: `app-${Date.now()}`,
+      applicationNumber: appNum,
+      serviceId,
+      serviceName,
+      citizenId,
+      citizenName,
+      citizenPhone,
+      submittedAt: new Date().toLocaleString(),
+      status: 'SUBMITTED',
+      officeId,
+      officeName: `${selectedCity} Jan Seva Kendra`,
+      documents: submittedDocs.map((d: any, idx: number) => ({
+        id: `doc-${Date.now()}-${idx}`,
+        requirementId: d.requirementId || `req-${idx}`,
+        requirementName: d.requirementName || d.name || 'Required Certificate',
+        fileUrl: d.fileUrl || '#',
+        fileName: d.fileName || `${d.requirementName || 'Document'}.pdf`,
+        status: 'PENDING',
+        validityPeriod: d.validityPeriod || 'Valid for 3 Years',
+      })),
+      timeline: [
+        {
+          status: 'SUBMITTED',
+          timestamp: new Date().toLocaleString(),
+          note: `Slot booked for ${slotDate} (${timeSlot}) in ${selectedCity}, ${selectedState}. Documents submitted online for verification.`,
+        },
+      ],
+    };
+    applicationsState = [newApp, ...applicationsState];
     
-    this.addAuditLog(citizenId, citizenName, 'citizen', 'GENERATE_QUEUE_TOKEN', serviceName, `Token ${tokenNum} generated for ${serviceName}`);
+    this.addAuditLog(citizenId, citizenName, 'citizen', 'GENERATE_QUEUE_TOKEN', serviceName, `Token ${tokenNum} generated for ${serviceName} (${timeSlot})`);
     notify();
     return newToken;
   },
   cancelQueueToken(tokenId: string) {
     queueState = queueState.map((q) => (q.id === tokenId ? { ...q, status: 'CANCELLED' as const } : q));
+    notify();
+  },
+  advanceTokenCounterStep(tokenId: string) {
+    queueState = queueState.map((q) => {
+      if (q.id !== tokenId) return q;
+      const path = q.counterPath && q.counterPath.length > 0 ? q.counterPath : ['Counter 1', 'Counter 3', 'Counter 5'];
+      const nextIdx = (q.currentCounterIndex ?? 0) + 1;
+      if (nextIdx >= path.length) {
+        return {
+          ...q,
+          currentCounterIndex: nextIdx - 1,
+          status: 'COMPLETED' as const,
+        };
+      }
+      const nextCounter = path[nextIdx].split(':')[0].trim();
+      return {
+        ...q,
+        currentCounterIndex: nextIdx,
+        counterNumber: nextCounter,
+      };
+    });
+    notify();
+  },
+  rebookExpiredTokenSlot(tokenId: string, newTimeSlot: string, newSlotDate?: string): QueueToken | undefined {
+    let rebooked: QueueToken | undefined;
+    const targetDate = newSlotDate || new Date().toISOString().split('T')[0];
+    queueState = queueState.map((q) => {
+      if (q.id !== tokenId) return q;
+      rebooked = {
+        ...q,
+        status: 'WAITING',
+        timeSlot: newTimeSlot,
+        slotDate: targetDate,
+        isLate: false,
+        issuedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        estimatedWaitMinutes: 10,
+        peopleAhead: 1,
+      };
+      return rebooked;
+    });
+    notify();
+    return rebooked;
+  },
+  updateEmployeeBreakSchedule(employeeId: string, breakStartTime: string, breakEndTime: string) {
+    employeesState = employeesState.map((emp) => {
+      if (emp.id === employeeId) {
+        return {
+          ...emp,
+          breakStartTime,
+          breakEndTime,
+        };
+      }
+      return emp;
+    });
     notify();
   },
   callNextToken(counterNumber: string): QueueToken | undefined {

@@ -63,6 +63,7 @@ export const AdminDashboardPage: React.FC = () => {
   const waitingTokens = queueTokens.filter((q) => q.status === 'WAITING').length;
   const changeRequests = dbChangeRequests.length > 0 ? dbChangeRequests : (contextCRs as any[]);
   const pendingCRs = changeRequests.filter((c: any) => c.status === 'PENDING').length;
+  const activeServicesCount = services.filter((s) => s.isActive !== false).length;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '28px' }}>
@@ -77,7 +78,7 @@ export const AdminDashboardPage: React.FC = () => {
         </div>
         <div style={{ display: 'flex', gap: '12px' }}>
           <Button variant="outline" onClick={() => navigate('/admin/services')} icon={<FileText size={18} />}>
-            Departmental Services Catalog
+            Services & Documents
           </Button>
           <Button variant="saffron" onClick={() => navigate('/admin/change-requests')} icon={<GitPullRequest size={18} />}>
             Create Document Change Request
@@ -94,7 +95,7 @@ export const AdminDashboardPage: React.FC = () => {
             { label: 'Active Employees', value: activeEmployees, sub: 'Counters operational', icon: <Users size={24} />, color: 'var(--color-primary-700)' },
             { label: 'Applications Today', value: applications.length, sub: 'Submitted online', icon: <FileText size={24} />, color: 'var(--color-info-700)' },
             { label: 'People Waiting', value: waitingTokens, sub: 'In virtual queue', icon: <Clock size={24} />, color: 'var(--color-accent-600)' },
-            { label: 'Active Services', value: services.length, sub: 'Department catalog', icon: <Shield size={24} />, color: 'var(--color-success-700)' },
+            { label: 'Active Services', value: activeServicesCount, sub: 'Department catalog', icon: <Shield size={24} />, color: 'var(--color-success-700)' },
             { label: 'Pending Change Requests', value: pendingCRs, sub: 'Awaiting Super Admin', icon: <GitPullRequest size={24} />, color: '#684A6B' },
           ].map((m, idx) => (
             <Card key={idx} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>

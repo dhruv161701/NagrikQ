@@ -13,6 +13,20 @@ import type {
 import { mockRepository } from '../services/repositories';
 import { supabase } from '../config/supabase';
 import { useAuth } from './AuthContext';
+import {
+  DEFAULT_COUNTER_SEQUENCES,
+  SERVICE_DOCUMENT_VALIDITY,
+} from '../data/indianLocations';
+
+export interface IssueTokenOptions {
+  officeId?: string;
+  timeSlot?: string;
+  slotDate?: string;
+  selectedState?: string;
+  selectedCity?: string;
+  counterPath?: string[];
+  documents?: any[];
+}
 
 interface DataContextType {
   services: Service[];
@@ -20,6 +34,7 @@ interface DataContextType {
   employees: Employee[];
   applications: Application[];
   queueTokens: QueueToken[];
+  isQueueTokensLoaded: boolean;
   changeRequests: ChangeRequest[];
   auditLogs: AuditLog[];
   notifications: NotificationItem[];
@@ -29,9 +44,20 @@ interface DataContextType {
   refreshChangeRequests: () => Promise<void>;
   getServiceById: (id: string) => Service | undefined;
   getUserActiveToken: (userId: string) => QueueToken | undefined;
+  getUserQueueTokens: (userId: string) => QueueToken[];
   getUserApplications: (userId: string) => Application[];
-  issueQueueToken: (citizenId: string, citizenName: string, citizenPhone: string, serviceId: string, serviceName: string) => Promise<QueueToken> | QueueToken;
-  cancelQueueToken: (tokenId: string) => void;
+  issueQueueToken: (
+    citizenId: string,
+    citizenName: string,
+    citizenPhone: string,
+    serviceId: string,
+    serviceName: string,
+    options?: string | IssueTokenOptions
+  ) => Promise<QueueToken> | QueueToken;
+  cancelQueueToken: (tokenId: string) => Promise<boolean> | void;
+  advanceTokenCounterStep: (tokenId: string) => Promise<void>;
+  rebookExpiredTokenSlot: (tokenId: string, newTimeSlot: string, newSlotDate?: string) => Promise<QueueToken | undefined>;
+  updateEmployeeBreakSchedule: (employeeId: string, breakStartTime: string, breakEndTime: string) => Promise<void>;
   callNextToken: (counterNumber?: string, serviceIds?: string[]) => Promise<QueueToken | undefined>;
   updateTokenStatus: (tokenId: string, status: QueueToken['status']) => Promise<void>;
   submitApplication: (serviceId: string, serviceName: string, citizenId: string, citizenName: string, citizenPhone: string, docs: { requirementId: string; requirementName: string; fileName: string }[]) => Promise<Application> | Application;
@@ -43,30 +69,43 @@ interface DataContextType {
 
 const DataContext = createContext<DataContextType | undefined>(undefined);
 
-const mapDBServiceToService = (item: any): Service => ({
-  id: item.id,
-  code: item.code || 'SRV-001',
-  name: item.name,
-  category: item.category || 'General',
-  description: item.description || '',
-  processingTimeDays: item.processing_time_days ?? item.processingTimeDays ?? 7,
-  feeAmount: item.fee_amount ?? item.feeAmount ?? 0,
-  departmentId: item.department_id || item.departmentId || 'dept-001',
-  departmentName: item.department_name || item.departmentName || 'Revenue Department',
-  requiredDocuments: Array.isArray(item.document_requirements) && item.document_requirements.length > 0
-    ? item.document_requirements.map((d: any) => ({
-        id: d.id,
-        name: d.name,
-        description: d.description || '',
-        isRequired: d.is_required !== undefined ? d.is_required : true,
-        fileTypes: d.file_types || ['pdf', 'jpg', 'png'],
-        maxSizeMb: d.max_size_mb || 5,
-      }))
-    : (item.requiredDocuments || []),
-  isActive: item.is_active !== undefined ? item.is_active : true,
-  iconName: item.icon_name || item.iconName || 'FileText',
-  eligibilityCriteria: item.eligibility_criteria || item.eligibilityCriteria || [],
-});
+const mapDBServiceToService = (item: any): Service => {
+  const category = item.category || 'General';
+  const defaultPath = (DEFAULT_COUNTER_SEQUENCES as any)[category] || DEFAULT_COUNTER_SEQUENCES.Default;
+  const validity = item.document_validity || (SERVICE_DOCUMENT_VALIDITY as any)[item.name] || 'Valid for 3 Years';
+  const slotCap = item.slot_capacity || Math.max(2, Math.floor(30 / (item.processing_time_days > 10 ? 10 : 5)));
+
+  return {
+    id: item.id,
+    code: item.code || 'SRV-001',
+    name: item.name,
+    category,
+    description: item.description || '',
+    processingTimeDays: item.processing_time_days ?? item.processingTimeDays ?? 7,
+    feeAmount: item.fee_amount ?? item.feeAmount ?? 0,
+    departmentId: item.department_id || item.departmentId || 'dept-001',
+    departmentName: item.department_name || item.departmentName || 'Revenue Department',
+    requiredDocuments: Array.isArray(item.document_requirements) && item.document_requirements.length > 0
+      ? item.document_requirements.map((d: any) => ({
+          id: d.id,
+          name: d.name,
+          description: d.description || '',
+          isRequired: d.is_required !== undefined ? d.is_required : true,
+          fileTypes: d.file_types || ['pdf', 'jpg', 'png'],
+          maxSizeMb: d.max_size_mb || 5,
+          validityPeriod: d.validity_period || validity,
+        }))
+      : (item.requiredDocuments || []),
+    isActive: item.is_active !== undefined ? item.is_active : true,
+    iconName: item.icon_name || item.iconName || 'FileText',
+    eligibilityCriteria: item.eligibility_criteria || item.eligibilityCriteria || [],
+    applicableStates: item.applicable_states || ['Gujarat', 'Maharashtra', 'Karnataka', 'Rajasthan', 'Delhi'],
+    applicableCities: item.applicable_cities || ['Rajkot', 'Ahmedabad', 'Surat', 'Vadodara', 'Mumbai City', 'Pune', 'Bengaluru Urban', 'Jaipur', 'New Delhi'],
+    slotCapacity: slotCap,
+    counterPath: item.counter_path || defaultPath,
+    documentValidity: validity,
+  };
+};
 
 const mapDBAppToApplication = (row: any): Application => ({
   id: row.id,
@@ -100,22 +139,57 @@ const mapDBAppToApplication = (row: any): Application => ({
   ],
 });
 
-const mapDBTokenToQueueToken = (row: any): QueueToken => ({
-  id: row.id,
-  tokenNumber: row.token_number || 'A-101',
-  citizenId: row.user_id,
-  citizenName: row.profiles?.full_name || 'Citizen User',
-  citizenPhone: row.profiles?.phone || '+91 9876543210',
-  serviceId: row.service_id,
-  serviceName: row.services?.name || 'Government Service',
-  officeId: row.office_id || 'off-001',
-  officeName: row.offices?.name || 'Rajkot Jan Seva Kendra',
-  counterNumber: row.counter_number || 'C-04',
-  issuedAt: new Date(row.created_at || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-  estimatedWaitMinutes: row.estimated_wait_minutes ?? 5,
-  peopleAhead: row.people_ahead ?? 0,
-  status: row.status || 'WAITING',
-});
+const mapDBTokenToQueueToken = (row: any): QueueToken => {
+  const serviceCategory = row.services?.category || 'Revenue';
+  const defaultPath = (DEFAULT_COUNTER_SEQUENCES as any)[serviceCategory] || DEFAULT_COUNTER_SEQUENCES.Default;
+  const counterPath = Array.isArray(row.counter_path) && row.counter_path.length > 0 ? row.counter_path : defaultPath;
+  const currentIdx = row.current_counter_index ?? 0;
+  const calculatedCounter = counterPath[currentIdx] ? counterPath[currentIdx].split(':')[0].trim() : 'C-04';
+
+  let resolvedSlot = row.time_slot;
+  let resolvedSlotDate = row.slot_date;
+  if (!resolvedSlot && row.applications?.remarks) {
+    const remarks = String(row.applications.remarks);
+    if (remarks.startsWith('{')) {
+      try {
+        const parsed = JSON.parse(remarks);
+        if (parsed.timeSlot) resolvedSlot = parsed.timeSlot;
+        if (parsed.slotDate) resolvedSlotDate = parsed.slotDate;
+      } catch {
+        // ignore
+      }
+    } else if (remarks.includes('Online booking for ')) {
+      const match = remarks.replace('Online booking for ', '').trim();
+      if (match.includes(' - ')) resolvedSlot = match;
+    }
+  }
+
+  return {
+    id: row.id,
+    tokenNumber: row.token_number || 'A101',
+    citizenId: row.user_id,
+    citizenName: row.profiles?.full_name || 'Citizen User',
+    citizenPhone: row.profiles?.phone || '+91 9876543210',
+    serviceId: row.service_id,
+    serviceName: row.services?.name || 'Government Service',
+    officeId: row.office_id || 'off-001',
+    officeName: row.offices?.name || 'Rajkot Jan Seva Kendra',
+    counterNumber: row.counter_number || calculatedCounter,
+    issuedAt: new Date(row.created_at || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    estimatedWaitMinutes: row.estimated_wait_minutes ?? 5,
+    peopleAhead: row.people_ahead ?? 0,
+    status: (row.status as any) || 'WAITING',
+    timeSlot: resolvedSlot || '',
+    slotDate: resolvedSlotDate || (row.queue_date ? String(row.queue_date) : new Date().toISOString().split('T')[0]),
+    selectedState: row.selected_state || row.offices?.state || 'Gujarat',
+    selectedCity: row.selected_city || row.offices?.district || 'Rajkot',
+    counterPath,
+    currentCounterIndex: currentIdx,
+    isLate: !!row.is_late,
+    gracePeriodMinutes: row.grace_period_minutes || 15,
+    submittedDocuments: Array.isArray(row.submitted_documents) ? row.submitted_documents : undefined,
+  };
+};
 
 const mapDBChangeRequestToChangeRequest = (row: any): ChangeRequest => ({
   id: row.id,
@@ -143,13 +217,16 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [, setTick] = useState(0);
   const [dbServices, setDbServices] = useState<Service[]>(() => mockRepository.getServices());
   const [dbApplications, setDbApplications] = useState<Application[]>(() => mockRepository.getApplications());
-  const [dbQueueTokens, setDbQueueTokens] = useState<QueueToken[]>(() => mockRepository.getQueueTokens());
+  const [dbQueueTokens, setDbQueueTokens] = useState<QueueToken[]>([]);
+  const [isQueueTokensLoaded, setIsQueueTokensLoaded] = useState(false);
   const [dbChangeRequests, setDbChangeRequests] = useState<ChangeRequest[]>(() => mockRepository.getChangeRequests());
 
-  // 1. Fetch Services (Public - no auth required)
+  // 1. Fetch Services (Public - no auth required, include inactive only for superadmin)
   const fetchServicesFromAPI = useCallback(async () => {
     try {
-      const res = await fetch('/api/services');
+      const isSuperAdmin = currentUser?.role === 'superadmin';
+      const endpoint = isSuperAdmin ? '/api/services?include_inactive=true' : '/api/services';
+      const res = await fetch(endpoint);
       if (res.ok) {
         const json = await res.json();
         if (json.success && Array.isArray(json.data) && json.data.length > 0) {
@@ -159,9 +236,11 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
       }
 
-      const { data, error } = await supabase
-        .from('services')
-        .select('*, document_requirements(*)');
+      let query = supabase.from('services').select('*, document_requirements(*)');
+      if (!isSuperAdmin) {
+        query = query.eq('is_active', true);
+      }
+      const { data, error } = await query;
 
       if (!error && data && data.length > 0) {
         setDbServices(data.map(mapDBServiceToService));
@@ -169,7 +248,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch (err) {
       console.warn('[DataContext] Failed to fetch services:', err);
     }
-  }, []);
+  }, [currentUser?.role]);
 
   // 2. Fetch Applications (Requires authenticated session)
   const fetchApplicationsFromAPI = useCallback(async () => {
@@ -207,27 +286,36 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, []);
 
-  // 3. Fetch Queue Tokens (Protected - officer queue requires employee/admin/superadmin role)
+  // 3. Fetch Queue Tokens (Protected - officer queue requires employee/admin/superadmin role, citizen direct query)
   const fetchQueueTokensFromAPI = useCallback(async (forcedRole?: string) => {
     try {
       const { data: sessionData } = await supabase.auth.getSession();
       const token = sessionData?.session?.access_token;
       if (!token) {
-        // Unauthenticated visitor: do not fire protected API endpoint
+        setIsQueueTokensLoaded(true);
         return;
       }
 
       const role = forcedRole || currentUser?.role;
-      // If citizen, read via Supabase direct query to avoid 403 Forbidden from officer endpoint
+      // If citizen, read via Supabase direct query
       if (role && !['employee', 'admin', 'superadmin'].includes(role)) {
-        const { data, error } = await supabase
+        let query = supabase
           .from('queue_tokens')
-          .select('*, services(id, name, code, category), offices(id, name), profiles:user_id(id, full_name, phone)')
-          .order('created_at', { ascending: true });
+          .select('*, services(id, name, code, category), offices(id, name), applications(id, remarks), profiles:user_id(id, full_name, phone)')
+          .order('created_at', { ascending: false });
 
-        if (!error && data && data.length > 0) {
-          setDbQueueTokens(data.map(mapDBTokenToQueueToken));
+        if (currentUser?.id) {
+          query = query.eq('user_id', currentUser.id);
         }
+
+        const { data, error } = await query;
+
+        if (!error && Array.isArray(data) && data.length > 0) {
+          setDbQueueTokens(data.map(mapDBTokenToQueueToken));
+        } else {
+          setDbQueueTokens([]);
+        }
+        setIsQueueTokensLoaded(true);
         return;
       }
 
@@ -237,25 +325,28 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       if (res.ok) {
         const json = await res.json();
-        if (json.success && Array.isArray(json.data) && json.data.length > 0) {
+        if (json.success && Array.isArray(json.data)) {
           const mapped = json.data.map(mapDBTokenToQueueToken);
           setDbQueueTokens(mapped);
+          setIsQueueTokensLoaded(true);
           return;
         }
       }
 
       const { data, error } = await supabase
         .from('queue_tokens')
-        .select('*, services(id, name, code, category), offices(id, name), profiles:user_id(id, full_name, phone)')
-        .order('created_at', { ascending: true });
+        .select('*, services(id, name, code, category), offices(id, name), applications(id, remarks), profiles:user_id(id, full_name, phone)')
+        .order('created_at', { ascending: false });
 
-      if (!error && data && data.length > 0) {
+      if (!error && data) {
         setDbQueueTokens(data.map(mapDBTokenToQueueToken));
       }
+      setIsQueueTokensLoaded(true);
     } catch (err) {
       console.warn('[DataContext] Failed to fetch queue tokens:', err);
+      setIsQueueTokensLoaded(true);
     }
-  }, [currentUser?.role]);
+  }, [currentUser?.role, currentUser?.id]);
 
   // 4. Fetch Change Requests (Protected - requires admin or superadmin role)
   const fetchChangeRequestsFromAPI = useCallback(async (forcedRole?: string) => {
@@ -309,16 +400,17 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     if (isAuthenticated) {
       fetchApplicationsFromAPI();
-      if (currentUser && ['employee', 'admin', 'superadmin'].includes(currentUser.role)) {
-        fetchQueueTokensFromAPI(currentUser.role);
-      }
+      fetchQueueTokensFromAPI(currentUser?.role);
       if (currentUser && ['admin', 'superadmin'].includes(currentUser.role)) {
         fetchChangeRequestsFromAPI(currentUser.role);
       }
+    } else {
+      setIsQueueTokensLoaded(true);
     }
   }, [
     isAuthenticated,
     currentUser?.role,
+    currentUser?.id,
     fetchServicesFromAPI,
     fetchApplicationsFromAPI,
     fetchQueueTokensFromAPI,
@@ -361,9 +453,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       fetchServicesFromAPI();
       if (authRef.current.isAuthenticated) {
         fetchApplicationsFromAPI();
-        if (authRef.current.role && ['employee', 'admin', 'superadmin'].includes(authRef.current.role)) {
-          fetchQueueTokensFromAPI(authRef.current.role);
-        }
+        fetchQueueTokensFromAPI(authRef.current.role);
         if (authRef.current.role && ['admin', 'superadmin'].includes(authRef.current.role)) {
           fetchChangeRequestsFromAPI(authRef.current.role);
         }
@@ -384,11 +474,12 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, []);
 
-  const services = dbServices.length > 0 ? dbServices : mockRepository.getServices();
+  const allServices = dbServices.length > 0 ? dbServices : mockRepository.getServices();
+  const services = currentUser?.role === 'superadmin' ? allServices : allServices.filter((s) => s.isActive !== false);
   const offices = mockRepository.getOffices();
   const employees = mockRepository.getEmployees();
   const applications = dbApplications.length > 0 ? dbApplications : mockRepository.getApplications();
-  const queueTokens = dbQueueTokens.length > 0 ? dbQueueTokens : mockRepository.getQueueTokens();
+  const queueTokens = isQueueTokensLoaded ? dbQueueTokens : [];
   const changeRequests = dbChangeRequests.length > 0 ? dbChangeRequests : mockRepository.getChangeRequests();
   const auditLogs = mockRepository.getAuditLogs();
   const notifications = mockRepository.getNotifications('');
@@ -444,16 +535,34 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     citizenName: string,
     citizenPhone: string,
     serviceId: string,
-    serviceName: string
+    serviceName: string,
+    options?: string | IssueTokenOptions
   ): Promise<QueueToken> => {
     // 1. Local optimistic update
-    const localToken = mockRepository.issueQueueToken(citizenId, citizenName, citizenPhone, serviceId, serviceName);
+    const localToken = mockRepository.issueQueueToken(
+      citizenId,
+      citizenName,
+      citizenPhone,
+      serviceId,
+      serviceName,
+      options
+    );
     setDbQueueTokens((prev) => [...prev.filter((q) => q.id !== localToken.id), localToken]);
+    // Also update applications so employee panel sees the booking immediately
+    setDbApplications(mockRepository.getApplications());
 
     // 2. Sync to backend API
     try {
       const { data: sessionData } = await supabase.auth.getSession();
       const token = sessionData?.session?.access_token || '';
+
+      const officeId = typeof options === 'string' ? options : options?.officeId;
+      const timeSlot = typeof options === 'object' ? options?.timeSlot : undefined;
+      const slotDate = typeof options === 'object' ? options?.slotDate : undefined;
+      const selectedState = typeof options === 'object' ? options?.selectedState : undefined;
+      const selectedCity = typeof options === 'object' ? options?.selectedCity : undefined;
+      const counterPath = typeof options === 'object' ? options?.counterPath : undefined;
+      const documents = typeof options === 'object' ? options?.documents : undefined;
 
       const res = await fetch('/api/queue/token', {
         method: 'POST',
@@ -464,14 +573,32 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         body: JSON.stringify({
           serviceId,
           serviceName,
+          officeId,
+          timeSlot,
+          slotDate,
+          selectedState,
+          selectedCity,
+          counterPath,
+          documents,
         }),
       });
 
       if (res.ok) {
         const json = await res.json();
         if (json.success && json.data) {
-          const mapped = mapDBTokenToQueueToken(json.data);
-          setDbQueueTokens((prev) => [...prev.filter((q) => q.id !== localToken.id && q.id !== mapped.id), mapped]);
+          const dataWithDefaults = {
+            ...json.data,
+            time_slot: json.data.time_slot || timeSlot,
+            slot_date: json.data.slot_date || slotDate,
+            selected_state: json.data.selected_state || selectedState,
+            selected_city: json.data.selected_city || selectedCity,
+            counter_path: json.data.counter_path || counterPath,
+          };
+          const mapped = mapDBTokenToQueueToken(dataWithDefaults);
+          setDbQueueTokens((prev) => [mapped, ...prev.filter((q) => q.id !== localToken.id && q.id !== mapped.id)]);
+          setIsQueueTokensLoaded(true);
+          // Refresh applications to pull any backend-generated application
+          fetchApplicationsFromAPI();
           return mapped;
         }
       }
@@ -479,6 +606,148 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       console.warn('[DataContext] Queue token API sync warning:', err);
     }
     return localToken;
+  };
+
+  // ADVANCE TOKEN COUNTER STEP (e.g. Counter 1 -> Counter 3 -> Counter 5)
+  const advanceTokenCounterStep = async (tokenId: string): Promise<void> => {
+    mockRepository.advanceTokenCounterStep(tokenId);
+    setDbQueueTokens((prev) =>
+      prev.map((q) => {
+        if (q.id !== tokenId) return q;
+        const path = q.counterPath && q.counterPath.length > 0 ? q.counterPath : ['Counter 1', 'Counter 3', 'Counter 5'];
+        const nextIdx = (q.currentCounterIndex ?? 0) + 1;
+        if (nextIdx >= path.length) {
+          return {
+            ...q,
+            currentCounterIndex: nextIdx - 1,
+            status: 'COMPLETED' as const,
+          };
+        }
+        const nextCounter = path[nextIdx].split(':')[0].trim();
+        return {
+          ...q,
+          currentCounterIndex: nextIdx,
+          counterNumber: nextCounter,
+        };
+      })
+    );
+
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData?.session?.access_token || '';
+
+      await fetch(`/api/queue/tokens/${tokenId}/advance-counter`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+      });
+    } catch (err) {
+      console.warn('[DataContext] Advance token counter step API warning:', err);
+    }
+  };
+
+  // REBOOK EXPIRED TOKEN SLOT FOR SAME DAY
+  const rebookExpiredTokenSlot = async (
+    tokenId: string,
+    newTimeSlot: string,
+    newSlotDate?: string
+  ): Promise<QueueToken | undefined> => {
+    const rebooked = mockRepository.rebookExpiredTokenSlot(tokenId, newTimeSlot, newSlotDate);
+    if (rebooked) {
+      setDbQueueTokens((prev) => prev.map((q) => (q.id === tokenId ? rebooked : q)));
+    }
+
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData?.session?.access_token || '';
+
+      const res = await fetch(`/api/queue/tokens/${tokenId}/rebook`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          timeSlot: newTimeSlot,
+          slotDate: newSlotDate || new Date().toISOString().split('T')[0],
+        }),
+      });
+      if (res.ok) {
+        const json = await res.json();
+        if (json.success && json.data) {
+          const mapped = mapDBTokenToQueueToken(json.data);
+          setDbQueueTokens((prev) => prev.map((q) => (q.id === tokenId ? mapped : q)));
+          return mapped;
+        }
+      }
+    } catch (err) {
+      console.warn('[DataContext] Rebook token API warning:', err);
+    }
+    return rebooked;
+  };
+
+  // UPDATE EMPLOYEE BREAK SCHEDULE
+  const updateEmployeeBreakSchedule = async (
+    employeeId: string,
+    breakStartTime: string,
+    breakEndTime: string
+  ): Promise<void> => {
+    mockRepository.updateEmployeeBreakSchedule(employeeId, breakStartTime, breakEndTime);
+
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData?.session?.access_token || '';
+
+      await fetch(`/api/admin/employees/${employeeId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          breakStartTime,
+          breakEndTime,
+        }),
+      });
+    } catch (err) {
+      console.warn('[DataContext] Update employee break API warning:', err);
+    }
+  };
+
+  // CANCEL QUEUE TOKEN
+  const handleCancelQueueToken = async (tokenId: string): Promise<boolean> => {
+    mockRepository.updateTokenStatus(tokenId, 'CANCELLED');
+    setDbQueueTokens((prev) =>
+      prev.map((q) => (q.id === tokenId ? { ...q, status: 'CANCELLED' as const } : q))
+    );
+
+    try {
+      await supabase
+        .from('queue_tokens')
+        .update({ status: 'CANCELLED', updated_at: new Date().toISOString() })
+        .eq('id', tokenId);
+    } catch (e) {
+      console.warn('Direct Supabase cancel error:', e);
+    }
+
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData?.session?.access_token || '';
+
+      const res = await fetch(`/api/queue/tokens/${tokenId}/cancel`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      return res.ok;
+    } catch (err) {
+      console.warn('[DataContext] Cancel token API warning:', err);
+      return false;
+    }
   };
 
   // CALL NEXT TOKEN
@@ -626,6 +895,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         employees,
         applications,
         queueTokens,
+        isQueueTokensLoaded,
         changeRequests,
         auditLogs,
         notifications,
@@ -634,16 +904,25 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         refreshQueueTokens: fetchQueueTokensFromAPI,
         refreshChangeRequests: fetchChangeRequestsFromAPI,
         getServiceById: (id) => services.find((s) => s.id === id) || mockRepository.getServiceById(id),
-        getUserActiveToken: (userId) =>
-          queueTokens.find(
+        getUserActiveToken: (userId) => {
+          if (!isQueueTokensLoaded) return undefined;
+          return queueTokens.find(
             (q) => q.citizenId === userId && (q.status === 'WAITING' || q.status === 'CALLED' || q.status === 'IN_SERVICE')
-          ) || mockRepository.getUserActiveToken(userId),
+          );
+        },
+        getUserQueueTokens: (userId) => {
+          if (!isQueueTokensLoaded) return [];
+          return queueTokens.filter((q) => q.citizenId === userId);
+        },
         getUserApplications: (userId) => {
           const userApps = applications.filter((a) => a.citizenId === userId);
           return userApps.length > 0 ? userApps : mockRepository.getUserApplications(userId);
         },
         issueQueueToken: handleIssueQueueToken,
-        cancelQueueToken: (tokenId) => mockRepository.cancelQueueToken(tokenId),
+        cancelQueueToken: handleCancelQueueToken,
+        advanceTokenCounterStep,
+        rebookExpiredTokenSlot,
+        updateEmployeeBreakSchedule,
         callNextToken: handleCallNextToken,
         updateTokenStatus: handleUpdateTokenStatus,
         submitApplication: handleSubmitApplication,

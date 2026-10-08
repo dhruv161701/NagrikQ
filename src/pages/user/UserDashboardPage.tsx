@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
 import { useUI } from '../../context/UIContext';
@@ -8,6 +8,7 @@ import { Card } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { StatusBadge } from '../../components/ui/StatusBadge';
 import { useNavigate } from 'react-router-dom';
+import { getDaysRemaining } from './UserDocumentsPage';
 import {
   Search,
   PlusCircle,
@@ -17,6 +18,8 @@ import {
   ArrowRight,
   FileCheck,
   Sparkles,
+  AlertTriangle,
+  RotateCcw,
 } from 'lucide-react';
 
 export const UserDashboardPage: React.FC = () => {
@@ -38,6 +41,38 @@ export const UserDashboardPage: React.FC = () => {
   const activeToken = getUserActiveToken(userId);
   const applications = getUserApplications(userId);
   const activeApplication = applications.find((a) => a.status === 'UNDER_REVIEW' || a.status === 'SUBMITTED');
+
+  // Document Expiry Check (15-day alert rule)
+  const expiringDocs = useMemo(() => {
+    const storageKey = currentUser?.id ? `nagrikq_vault_${currentUser.id}` : 'nagrikq_vault_guest';
+    let docs: any[] = [];
+    try {
+      const saved = localStorage.getItem(storageKey);
+      if (saved) {
+        docs = JSON.parse(saved);
+      } else {
+        const tenDaysFromNow = new Date();
+        tenDaysFromNow.setDate(tenDaysFromNow.getDate() + 10);
+        docs = [
+          {
+            id: 'vault-init-income',
+            name: 'Income Certificate',
+            expiryDate: tenDaysFromNow.toISOString().split('T')[0],
+            validityPeriod: 'Valid for 3 Years',
+          },
+        ];
+      }
+    } catch {
+      docs = [];
+    }
+
+    return docs
+      .map((d) => ({
+        ...d,
+        daysRemaining: getDaysRemaining(d.expiryDate),
+      }))
+      .filter((d) => d.daysRemaining !== null && d.daysRemaining <= 15 && d.daysRemaining >= 0);
+  }, [currentUser]);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '28px' }}>
@@ -62,6 +97,74 @@ export const UserDashboardPage: React.FC = () => {
       </div>
 
       <GuidedTourModal isOpen={showTour} onClose={() => setShowTour(false)} />
+
+      {/* DOCUMENT EXPIRY ALERT BANNER (15-DAY NOTICE) */}
+      {expiringDocs.length > 0 && (
+        <div
+          style={{
+            backgroundColor: '#fffbeb',
+            border: '1.5px solid #f59e0b',
+            borderRadius: '12px',
+            padding: '16px 20px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: '16px',
+            boxShadow: '0 2px 8px rgba(245, 158, 11, 0.1)',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+            <div
+              style={{
+                width: '42px',
+                height: '42px',
+                borderRadius: '50%',
+                backgroundColor: '#fef3c7',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: '#b45309',
+                flexShrink: 0,
+              }}
+            >
+              <AlertTriangle size={22} />
+            </div>
+            <div>
+              <div style={{ fontWeight: 700, color: '#92400e', fontSize: '1rem' }}>
+                Action Required: {expiringDocs.length} Document{expiringDocs.length > 1 ? 's' : ''} Expiring Soon (15-Day Alert)
+              </div>
+              <div style={{ fontSize: '0.88rem', color: '#b45309', marginTop: '2px' }}>
+                {expiringDocs.map((d) => (
+                  <span key={d.id} style={{ marginRight: '12px' }}>
+                    <strong>{d.name}</strong> expires in <strong>{d.daysRemaining} days</strong> ({d.expiryDate}).
+                  </span>
+                ))}
+                Renew now to maintain valid citizen KYC status.
+              </div>
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => navigate('/user/documents')}
+              style={{ borderColor: '#d97706', color: '#92400e', backgroundColor: '#fff' }}
+            >
+              View Document Vault
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() => navigate('/user/services')}
+              icon={<RotateCcw size={15} />}
+              style={{ backgroundColor: '#d97706', borderColor: '#d97706' }}
+            >
+              Apply for Renewal
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* ACTIVE QUEUE CARD (IF ANY) */}
       {activeToken && (

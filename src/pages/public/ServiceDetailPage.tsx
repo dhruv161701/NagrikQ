@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useData } from '../../context/DataContext';
 import { useUI } from '../../context/UIContext';
@@ -16,10 +16,20 @@ import {
   MapPin,
   Ticket,
 } from 'lucide-react';
+import {
+  INDIAN_STATES,
+  STATE_CITIES,
+  FIXED_30_MIN_SLOTS,
+  SERVICE_DOCUMENT_VALIDITY,
+  DEFAULT_COUNTER_SEQUENCES,
+  STATE_SPECIFIC_REQUIREMENTS,
+  getAvailableBookingDates,
+  isSlotInPastForToday,
+} from '../../data/indianLocations';
 
 export const ServiceDetailPage: React.FC = () => {
   const { serviceId } = useParams<{ serviceId: string }>();
-  const { getServiceById, offices, issueQueueToken, submitApplication } = useData();
+  const { getServiceById, offices, queueTokens, issueQueueToken, submitApplication } = useData();
   const { uiMode } = useUI();
   const { currentUser } = useAuth();
   const navigate = useNavigate();
@@ -28,7 +38,74 @@ export const ServiceDetailPage: React.FC = () => {
   const [isApplyModalOpen, setIsApplyModalOpen] = useState(false);
   const [isAIModalOpen, setIsAIModalOpen] = useState(false);
 
+  // Jurisdiction & Slot Booking Form State
+  const [selectedState, setSelectedState] = useState<string>('Gujarat');
+  const [selectedCity, setSelectedCity] = useState<string>('Rajkot');
+  const [selectedTimeSlot, setSelectedTimeSlot] = useState<string>('10:00 AM - 10:30 AM');
+  const [selectedSlotDate, setSelectedSlotDate] = useState<string>(() => new Date().toISOString().split('T')[0]);
+
+  // Booking Date Restrictions: Strictly Today & Tomorrow only
+  const bookingDateOptions = useMemo(() => getAvailableBookingDates(), []);
+
+  // Compute available slots: For Today, strictly exclude past time slots. Tomorrow shows all slots.
+  const availableSlotsForDate = useMemo(() => {
+    const todayStr = new Date().toISOString().split('T')[0];
+    const isToday = selectedSlotDate === todayStr;
+    if (isToday) {
+      return FIXED_30_MIN_SLOTS.filter((s) => !isSlotInPastForToday(s));
+    }
+    return FIXED_30_MIN_SLOTS;
+  }, [selectedSlotDate]);
+
+  // Keep selectedTimeSlot valid when date switches
+  useEffect(() => {
+    if (availableSlotsForDate.length > 0 && !availableSlotsForDate.includes(selectedTimeSlot)) {
+      setSelectedTimeSlot(availableSlotsForDate[0]);
+    }
+  }, [availableSlotsForDate, selectedTimeSlot]);
+
   const service = getServiceById(serviceId || 'srv-001');
+
+  // Synchronize city when state changes
+  useEffect(() => {
+    const cities = STATE_CITIES[selectedState];
+    if (cities && cities.length > 0 && !cities.includes(selectedCity)) {
+      setSelectedCity(cities[0]);
+    }
+  }, [selectedState, selectedCity]);
+
+  const availableCities = useMemo(() => {
+    return STATE_CITIES[selectedState] || [];
+  }, [selectedState]);
+
+  // Slot capacity based on service SLA length
+  const slotCapacity = useMemo(() => {
+    if (!service) return 6;
+    if (service.slotCapacity) return service.slotCapacity;
+    const days = service.processingTimeDays || 7;
+    return Math.max(2, Math.floor(30 / (days > 10 ? 10 : 5)));
+  }, [service]);
+
+  // Jurisdiction documents applicable with validity periods
+  const applicableDocs = useMemo(() => {
+    if (!service) return [];
+    const baseDocs = service.requiredDocuments || [];
+    const extraDocs = STATE_SPECIFIC_REQUIREMENTS[selectedState] || [];
+    return [
+      ...baseDocs.map((d) => ({
+        id: d.id,
+        name: d.name,
+        validity: d.validityPeriod || (SERVICE_DOCUMENT_VALIDITY as any)[service.name] || 'Valid for 3 Years',
+        isStateSpecific: false,
+      })),
+      ...extraDocs.map((e, idx) => ({
+        id: `extra-${idx}`,
+        name: `${e.docName} (${selectedState} State Mandate)`,
+        validity: 'Valid for 1 Year (State Rule)',
+        isStateSpecific: true,
+      })),
+    ];
+  }, [service, selectedState]);
 
   if (!service) {
     return (
@@ -49,16 +126,30 @@ export const ServiceDetailPage: React.FC = () => {
 
     const citizenId = currentUser.id;
     const citizenName = currentUser.name;
-    const citizenPhone = currentUser.phone || '';
+    const citizenPhone = currentUser.phone || '+91 9876543210';
 
-    const mockDocSubmissions = service.requiredDocuments.map((d) => ({
+    const mockDocSubmissions = applicableDocs.map((d) => ({
       requirementId: d.id,
       requirementName: d.name,
-      fileName: `${d.name.toLowerCase().replace(/\s+/g, '_')}_document.pdf`,
+      fileName: `${d.name.toLowerCase().replace(/[^a-z0-9]/g, '_')}_document.pdf`,
+      validityPeriod: d.validity,
     }));
 
+    const targetCounterPath =
+      service.counterPath && service.counterPath.length > 0
+        ? service.counterPath
+        : (DEFAULT_COUNTER_SEQUENCES as any)[service.category] ||
+          DEFAULT_COUNTER_SEQUENCES.Default;
+
     submitApplication(service.id, service.name, citizenId, citizenName, citizenPhone, mockDocSubmissions);
-    issueQueueToken(citizenId, citizenName, citizenPhone, service.id, service.name);
+    issueQueueToken(citizenId, citizenName, citizenPhone, service.id, service.name, {
+      timeSlot: selectedTimeSlot,
+      slotDate: selectedSlotDate,
+      selectedState,
+      selectedCity,
+      counterPath: targetCounterPath,
+      documents: mockDocSubmissions,
+    });
 
     setIsApplyModalOpen(false);
     navigate('/user/queue');
@@ -263,30 +354,231 @@ export const ServiceDetailPage: React.FC = () => {
       <Modal
         isOpen={isApplyModalOpen}
         onClose={() => setIsApplyModalOpen(false)}
-        title={`Apply for ${service.name}`}
-        description="Confirm application submission and generate your virtual token."
+        title={`Apply & Book Slot — ${service.name}`}
+        description="Select your jurisdiction and advance 30-minute time slot for your virtual token."
+        maxWidth="680px"
       >
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-          <div style={{ backgroundColor: 'var(--color-primary-50)', padding: '16px', borderRadius: '12px', border: '1px solid var(--color-primary-100)' }}>
-            <div style={{ fontWeight: 700, color: 'var(--color-primary-900)', fontSize: '1.1rem' }}>
-              Citizen: {currentUser?.name || 'Logged in user'}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+          {/* State and City Selector */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', backgroundColor: 'var(--color-primary-50)', padding: '14px', borderRadius: '10px', border: '1px solid var(--color-primary-200)' }}>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, color: 'var(--color-primary-900)', marginBottom: '4px' }}>
+                State <span style={{ color: 'red' }}>*</span>
+              </label>
+              <select
+                value={selectedState}
+                onChange={(e) => setSelectedState(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '8px 10px',
+                  borderRadius: '6px',
+                  border: '1px solid var(--color-border)',
+                  backgroundColor: 'white',
+                  fontSize: '0.88rem',
+                  fontWeight: 600,
+                }}
+              >
+                {INDIAN_STATES.map((st) => (
+                  <option key={st} value={st}>
+                    {st}
+                  </option>
+                ))}
+              </select>
             </div>
-            <span style={{ fontSize: '0.88rem', color: 'var(--color-neutral-600)' }}>
-              Phone: {currentUser?.phone || 'N/A'} • Email: {currentUser?.email || ''}
-            </span>
+
+            <div>
+              <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, color: 'var(--color-primary-900)', marginBottom: '4px' }}>
+                City / District <span style={{ color: 'red' }}>*</span>
+              </label>
+              <select
+                value={selectedCity}
+                onChange={(e) => setSelectedCity(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '8px 10px',
+                  borderRadius: '6px',
+                  border: '1px solid var(--color-border)',
+                  backgroundColor: 'white',
+                  fontSize: '0.88rem',
+                  fontWeight: 600,
+                }}
+              >
+                {availableCities.map((ct) => (
+                  <option key={ct} value={ct}>
+                    {ct}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
 
+          {/* Required Documents with Validity */}
           <div>
-            <h4 style={{ fontSize: '1rem', color: 'var(--color-neutral-900)', marginBottom: '8px' }}>
-              Submitting Documents Required ({service.requiredDocuments.length})
-            </h4>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              {service.requiredDocuments.map((doc) => (
-                <div key={doc.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.9rem', color: 'var(--color-neutral-700)' }}>
-                  <ShieldCheck size={16} style={{ color: 'var(--color-success-700)' }} /> {doc.name} (Attached)
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+              <h4 style={{ fontSize: '0.95rem', color: 'var(--color-neutral-900)', margin: 0, fontWeight: 700 }}>
+                Required Documents for {selectedState} ({applicableDocs.length})
+              </h4>
+              <span style={{ fontSize: '11px', color: 'var(--color-neutral-500)' }}>Online Proofs Uploaded</span>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '140px', overflowY: 'auto' }}>
+              {applicableDocs.map((doc, idx) => (
+                <div
+                  key={idx}
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    backgroundColor: 'var(--color-bg-page)',
+                    padding: '8px 12px',
+                    borderRadius: '6px',
+                    border: '1px solid var(--color-border)',
+                    fontSize: '0.85rem',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <ShieldCheck size={16} style={{ color: 'var(--color-success-700)' }} />
+                    <span style={{ fontWeight: 600 }}>{doc.name}</span>
+                  </div>
+                  <Badge variant={doc.isStateSpecific ? 'warning' : 'info'}>
+                    {doc.validity}
+                  </Badge>
                 </div>
               ))}
             </div>
+          </div>
+
+          {/* 30-Minute Time Slot Picker (Strictly Today & Tomorrow Only) */}
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', flexWrap: 'wrap', gap: '8px' }}>
+              <label style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--color-neutral-800)' }}>
+                Select Booking Date & 30-Minute Time Slot
+              </label>
+              <span style={{ fontSize: '11px', color: 'var(--color-neutral-600)' }}>
+                Capacity: <strong>{slotCapacity}/slot</strong>
+              </span>
+            </div>
+
+            {/* STRICT DATE SELECTION: TODAY & TOMORROW ONLY */}
+            <div style={{ display: 'flex', gap: '10px', marginBottom: '12px' }}>
+              {bookingDateOptions.map((opt) => {
+                const isSelectedDate = selectedSlotDate === opt.date;
+                return (
+                  <button
+                    type="button"
+                    key={opt.date}
+                    onClick={() => setSelectedSlotDate(opt.date)}
+                    style={{
+                      flex: 1,
+                      padding: '8px 12px',
+                      borderRadius: '8px',
+                      border: `1.5px solid ${
+                        isSelectedDate ? 'var(--color-primary-800)' : 'var(--color-neutral-300)'
+                      }`,
+                      backgroundColor: isSelectedDate ? 'var(--color-primary-800)' : 'white',
+                      color: isSelectedDate ? 'white' : 'var(--color-neutral-800)',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      gap: '2px',
+                      transition: 'all 0.15s ease',
+                      boxShadow: isSelectedDate ? '0 2px 8px rgba(11, 79, 108, 0.2)' : 'none',
+                    }}
+                  >
+                    <span style={{ fontSize: '0.85rem', fontWeight: 800 }}>
+                      {opt.label === 'Today' ? '📅 Today' : '🗓️ Tomorrow'}
+                    </span>
+                    <span
+                      style={{
+                        fontSize: '11px',
+                        color: isSelectedDate ? 'var(--color-primary-100)' : 'var(--color-neutral-500)',
+                      }}
+                    >
+                      {opt.formatted}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* SLOTS GRID */}
+            {availableSlotsForDate.length === 0 ? (
+              <div
+                style={{
+                  padding: '16px',
+                  backgroundColor: 'var(--color-warning-50)',
+                  border: '1px solid var(--color-warning-300)',
+                  borderRadius: '8px',
+                  color: 'var(--color-warning-900)',
+                  fontSize: '0.85rem',
+                  textAlign: 'center',
+                }}
+              >
+                ⏰ <strong>No more slots available for Today.</strong> Please select <strong>Tomorrow</strong> above to book your turn.
+              </div>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '8px', maxHeight: '160px', overflowY: 'auto' }}>
+                {availableSlotsForDate.map((slot) => {
+                  const bookedCount = queueTokens.filter(
+                    (q) =>
+                      q.timeSlot === slot &&
+                      q.slotDate === selectedSlotDate &&
+                      q.serviceId === service.id &&
+                      q.status !== 'CANCELLED' &&
+                      q.status !== 'EXPIRED'
+                  ).length;
+                  const remaining = Math.max(0, slotCapacity - bookedCount);
+                  const isFull = remaining === 0;
+                  const isSelected = selectedTimeSlot === slot;
+
+                  return (
+                    <button
+                      type="button"
+                      key={slot}
+                      disabled={isFull}
+                      onClick={() => setSelectedTimeSlot(slot)}
+                      style={{
+                        padding: '8px 10px',
+                        borderRadius: '8px',
+                        border: `1.5px solid ${
+                          isSelected
+                            ? 'var(--color-saffron-600)'
+                            : isFull
+                            ? 'var(--color-neutral-200)'
+                            : 'var(--color-primary-300)'
+                        }`,
+                        backgroundColor: isSelected
+                          ? 'var(--color-saffron-100)'
+                          : isFull
+                          ? 'var(--color-neutral-100)'
+                          : 'white',
+                        color: isFull ? 'var(--color-neutral-400)' : 'var(--color-neutral-900)',
+                        cursor: isFull ? 'not-allowed' : 'pointer',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        gap: '2px',
+                      }}
+                    >
+                      <span style={{ fontSize: '0.8rem', fontWeight: 700 }}>{slot}</span>
+                      <span
+                        style={{
+                          fontSize: '10px',
+                          fontWeight: 600,
+                          color: isFull
+                            ? 'var(--color-danger-600)'
+                            : isSelected
+                            ? 'var(--color-saffron-800)'
+                            : 'var(--color-success-700)',
+                        }}
+                      >
+                        {isFull ? 'FULL' : `${remaining}/${slotCapacity} left`}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '12px' }}>
@@ -294,7 +586,7 @@ export const ServiceDetailPage: React.FC = () => {
               Cancel
             </Button>
             <Button variant="saffron" onClick={handleCreateApplicationAndToken} icon={<Ticket size={18} />}>
-              Generate Virtual Token Now →
+              Confirm & Book Slot ({selectedTimeSlot})
             </Button>
           </div>
         </div>

@@ -79,7 +79,7 @@ export const UserServicesPage: React.FC = () => {
         </div>
       </div>
 
-      {refreshing ? (
+      {services.length === 0 ? (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '24px' }}>
           {Array.from({ length: 6 }).map((_, i) => (
             <SkeletonCard key={i} />

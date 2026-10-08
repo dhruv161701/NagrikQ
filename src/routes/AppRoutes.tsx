@@ -41,7 +41,6 @@ import { EmployeeSettingsPage } from '../pages/employee/EmployeeSettingsPage';
 import { AdminDashboardPage } from '../pages/admin/AdminDashboardPage';
 import { AdminEmployeesPage } from '../pages/admin/AdminEmployeesPage';
 import { AdminServicesPage } from '../pages/admin/AdminServicesPage';
-import { AdminDocRequirementsPage } from '../pages/admin/AdminDocRequirementsPage';
 import { AdminChangeRequestsPage } from '../pages/admin/AdminChangeRequestsPage';
 import { AdminReportsPage } from '../pages/admin/AdminReportsPage';
 import { AdminAuditLogsPage } from '../pages/admin/AdminAuditLogsPage';
@@ -144,7 +143,7 @@ export const AppRoutes: React.FC = () => {
         <Route path="dashboard" element={<AdminDashboardPage />} />
         <Route path="employees" element={<AdminEmployeesPage />} />
         <Route path="services" element={<AdminServicesPage />} />
-        <Route path="document-requirements" element={<AdminDocRequirementsPage />} />
+        <Route path="document-requirements" element={<Navigate to="/admin/services" replace />} />
         <Route path="change-requests" element={<AdminChangeRequestsPage />} />
         <Route path="reports" element={<AdminReportsPage />} />
         <Route path="audit-logs" element={<AdminAuditLogsPage />} />

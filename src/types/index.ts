@@ -27,6 +27,7 @@ export interface DocumentRequirement {
   isRequired: boolean;
   fileTypes?: string[];
   maxSizeMb?: number;
+  validityPeriod?: string;
 }
 
 export interface Service {
@@ -43,6 +44,11 @@ export interface Service {
   isActive: boolean;
   iconName: string;
   eligibilityCriteria?: string[];
+  applicableStates?: string[];
+  applicableCities?: string[];
+  slotCapacity?: number;
+  counterPath?: string[];
+  documentValidity?: string;
 }
 
 export interface Department {
@@ -73,6 +79,9 @@ export interface Employee {
   counterNumber: string;
   isActive: boolean;
   assignedServiceIds: string[];
+  breakStartTime?: string;
+  breakEndTime?: string;
+  isOnBreak?: boolean;
 }
 
 export type ApplicationStatus =
@@ -127,7 +136,8 @@ export type QueueStatus =
   | 'IN_SERVICE'
   | 'COMPLETED'
   | 'NO_SHOW'
-  | 'CANCELLED';
+  | 'CANCELLED'
+  | 'EXPIRED';
 
 export interface QueueToken {
   id: string;
@@ -145,6 +155,15 @@ export interface QueueToken {
   peopleAhead: number;
   status: QueueStatus;
   applicationId?: string;
+  timeSlot?: string; // e.g. '01:30 PM - 02:00 PM'
+  slotDate?: string; // e.g. '2026-10-07'
+  selectedState?: string; // e.g. 'Gujarat'
+  selectedCity?: string; // e.g. 'Rajkot'
+  counterPath?: string[]; // e.g. ['Counter 1', 'Counter 3', 'Counter 5']
+  currentCounterIndex?: number;
+  isLate?: boolean;
+  gracePeriodMinutes?: number;
+  submittedDocuments?: { requirementName: string; fileName: string; status: string; fileUrl?: string; issueDate?: string; expiryDate?: string }[];
 }
 
 export type ChangeRequestStatus = 'PENDING' | 'APPROVED' | 'REJECTED';

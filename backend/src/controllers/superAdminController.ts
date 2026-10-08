@@ -76,13 +76,26 @@ export const getSystemAnalytics = async (
       .from('offices')
       .select('*', { count: 'exact', head: true });
 
+    // Active officers count from staff_profiles or officers
+    const { count: staffCount } = await supabaseAdmin
+      .from('staff_profiles')
+      .select('*', { count: 'exact', head: true })
+      .in('role', ['employee', 'officer']);
+
     const { count: officersCount } = await supabaseAdmin
       .from('officers')
       .select('*', { count: 'exact', head: true });
 
+    const finalEmployeesCount = (staffCount && staffCount > 0) ? staffCount : (officersCount || 0);
+
     const { count: servicesCount } = await supabaseAdmin
       .from('services')
       .select('*', { count: 'exact', head: true });
+
+    const { count: activeServicesCount } = await supabaseAdmin
+      .from('services')
+      .select('*', { count: 'exact', head: true })
+      .eq('is_active', true);
 
     const { count: pendingCRsCount } = await supabaseAdmin
       .from('service_change_requests')
@@ -98,8 +111,9 @@ export const getSystemAnalytics = async (
       data: {
         totalCitizens: citizensCount || 0,
         activeOffices: officesCount || 0,
-        activeEmployees: officersCount || 0,
+        activeEmployees: finalEmployeesCount,
         totalServices: servicesCount || 0,
+        activeServices: activeServicesCount || 0,
         pendingChangeRequests: pendingCRsCount || 0,
         applicationsToday: appsCount || 0,
         averageWaitTimeMinutes: 0,
@@ -625,3 +639,90 @@ export const updateGlobalService = async (
     res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: err.message } });
   }
 };
+
+export const deleteGlobalService = async (
+  req: AuthenticatedRequest,
+  res: Response
+): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const superAdminId = req.user?.id;
+
+    // Delete dependent tables first
+    await supabaseAdmin.from('document_requirements').delete().eq('service_id', id);
+    await supabaseAdmin.from('office_services').delete().eq('service_id', id);
+    const { error } = await supabaseAdmin.from('services').delete().eq('id', id);
+
+    if (error) {
+      res.status(400).json({
+        success: false,
+        error: { code: 'DELETE_FAILED', message: error.message },
+      });
+      return;
+    }
+
+    // Audit log
+    await supabaseAdmin.from('audit_logs').insert({
+      actor_user_id: superAdminId,
+      actor_user_name: req.user?.fullName || 'Super Admin',
+      actor_user_role: 'superadmin',
+      action: 'DELETE_GLOBAL_SERVICE',
+      entity_type: 'service',
+      entity_id: id,
+      details: `Super Admin deleted service ID: ${id}.`,
+    });
+
+    res.json({
+      success: true,
+      message: 'Government service permanently deleted.',
+    } as ApiResponse);
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: err.message } });
+  }
+};
+
+export const toggleGlobalServiceStatus = async (
+  req: AuthenticatedRequest,
+  res: Response
+): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const { isActive } = req.body;
+    const superAdminId = req.user?.id;
+
+    const { data: updatedService, error } = await supabaseAdmin
+      .from('services')
+      .update({ is_active: Boolean(isActive), updated_at: new Date().toISOString() })
+      .eq('id', id)
+      .select('*')
+      .single();
+
+    if (error || !updatedService) {
+      res.status(400).json({
+        success: false,
+        error: { code: 'TOGGLE_FAILED', message: error?.message || 'Failed to update service status.' },
+      });
+      return;
+    }
+
+    // Audit log
+    await supabaseAdmin.from('audit_logs').insert({
+      actor_user_id: superAdminId,
+      actor_user_name: req.user?.fullName || 'Super Admin',
+      actor_user_role: 'superadmin',
+      action: 'TOGGLE_SERVICE_STATUS',
+      entity_type: 'service',
+      entity_id: id,
+      details: `Super Admin set service '${updatedService.name}' status to ${isActive ? 'ACTIVE' : 'INACTIVE'}.`,
+    });
+
+    res.json({
+      success: true,
+      data: updatedService,
+      message: `Service status updated to ${isActive ? 'ACTIVE' : 'INACTIVE'}.`,
+    } as ApiResponse);
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: err.message } });
+  }
+};
+

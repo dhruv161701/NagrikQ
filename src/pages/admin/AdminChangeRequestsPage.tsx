@@ -89,9 +89,11 @@ export const AdminChangeRequestsPage: React.FC = () => {
 
   const targetService = services.find((s) => s.id === selectedServiceId) || services[0];
 
-  const fetchChangeRequests = useCallback(async () => {
+  const fetchChangeRequests = useCallback(async (isInitial: boolean = false) => {
     try {
-      setLoading(true);
+      if (isInitial) {
+        setLoading(true);
+      }
       const { data: sessionData } = await supabase.auth.getSession();
       const token = sessionData?.session?.access_token || '';
 
@@ -121,12 +123,14 @@ export const AdminChangeRequestsPage: React.FC = () => {
     } catch (err) {
       console.warn('Error fetching change requests:', err);
     } finally {
-      setLoading(false);
+      if (isInitial) {
+        setLoading(false);
+      }
     }
   }, []);
 
   useEffect(() => {
-    fetchChangeRequests();
+    fetchChangeRequests(true);
 
     // Subscribe to realtime updates for service_change_requests
     const channel = supabase
@@ -135,12 +139,14 @@ export const AdminChangeRequestsPage: React.FC = () => {
         'postgres_changes',
         { event: '*', schema: 'public', table: 'service_change_requests' },
         () => {
-          fetchChangeRequests();
+          fetchChangeRequests(false);
         }
       )
       .subscribe();
 
-    const interval = setInterval(fetchChangeRequests, 2500);
+    const interval = setInterval(() => {
+      fetchChangeRequests(false);
+    }, 2500);
 
     return () => {
       clearInterval(interval);
@@ -232,7 +238,7 @@ export const AdminChangeRequestsPage: React.FC = () => {
       )}
 
       {/* Change Requests List */}
-      {loading ? (
+      {loading && changeRequests.length === 0 ? (
         <div style={{ padding: '60px', textAlign: 'center', color: 'var(--color-neutral-500)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
           <Loader2 size={32} className="spin" style={{ animation: 'spin 1s linear infinite' }} />
           <span>Loading change requests from state database...</span>

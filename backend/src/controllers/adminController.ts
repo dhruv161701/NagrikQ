@@ -132,6 +132,8 @@ export const createEmployeeUser = async (
       assignedServices,
       permissions,
       tempPassword,
+      breakStartTime,
+      breakEndTime,
     } = req.body;
 
     if (!fullName || !email || !employeeId) {
@@ -218,6 +220,8 @@ export const createEmployeeUser = async (
           permissions: permissions || ['VIEW_APPLICATIONS', 'REVIEW_APPLICATION', 'CALL_NEXT_TOKEN'],
           role: 'employee',
           status: 'ACTIVE',
+          break_start_time: breakStartTime || '01:00 PM',
+          break_end_time: breakEndTime || '01:30 PM',
         },
         { onConflict: 'id' }
       )
@@ -410,3 +414,119 @@ export const setupOfficeConfig = async (
     res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: err.message } });
   }
 };
+
+export const updateEmployeeUser = async (
+  req: AuthenticatedRequest,
+  res: Response
+): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const adminId = req.user?.id;
+    const {
+      fullName,
+      designation,
+      counterNumber,
+      phone,
+      status,
+      district,
+      taluka,
+      breakStartTime,
+      breakEndTime,
+      onBreak,
+    } = req.body;
+
+    // 1. Update staff_profiles table
+    const updatePayload: any = {};
+    if (designation !== undefined) updatePayload.designation = designation;
+    if (counterNumber !== undefined) updatePayload.counter_number = counterNumber;
+    if (phone !== undefined) updatePayload.phone = phone;
+    if (status !== undefined) updatePayload.status = status;
+    if (district !== undefined) updatePayload.district = district;
+    if (taluka !== undefined) updatePayload.taluka = taluka;
+    if (breakStartTime !== undefined) updatePayload.break_start_time = breakStartTime;
+    if (breakEndTime !== undefined) updatePayload.break_end_time = breakEndTime;
+    if (onBreak !== undefined) updatePayload.on_break = onBreak;
+
+    const { data: updatedStaff, error: staffError } = await supabaseAdmin
+      .from('staff_profiles')
+      .update(updatePayload)
+      .eq('id', id)
+      .select('*')
+      .single();
+
+    if (staffError) {
+      res.status(400).json({ success: false, error: { code: 'UPDATE_FAILED', message: staffError.message } });
+      return;
+    }
+
+    // 2. Also update profiles table if fullName is passed
+    if (fullName) {
+      await supabaseAdmin.from('profiles').update({ full_name: fullName }).eq('id', id);
+    }
+
+    // 3. Update officers table counter if counterNumber is passed
+    if (counterNumber || status) {
+      await supabaseAdmin.from('officers').update({
+        counter_number: counterNumber || undefined,
+        is_active: status === 'ACTIVE',
+      }).eq('user_id', id);
+    }
+
+    // 4. Audit Log
+    await supabaseAdmin.from('audit_logs').insert({
+      actor_user_id: adminId,
+      actor_user_name: req.user?.fullName || 'Admin',
+      actor_user_role: req.user?.role || 'admin',
+      action: 'UPDATE_EMPLOYEE_ACCOUNT',
+      entity_type: 'staff_profile',
+      entity_id: id,
+      details: `Admin updated employee details for user ${id}. Status: ${status || 'unchanged'}.`,
+    });
+
+    res.json({
+      success: true,
+      data: updatedStaff,
+      message: 'Employee updated successfully.',
+    } as ApiResponse);
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: err.message } });
+  }
+};
+
+export const deleteEmployeeUser = async (
+  req: AuthenticatedRequest,
+  res: Response
+): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const adminId = req.user?.id;
+
+    // Delete or deactivate from staff_profiles & officers
+    await supabaseAdmin.from('officers').delete().eq('user_id', id);
+    const { error } = await supabaseAdmin.from('staff_profiles').delete().eq('id', id);
+
+    if (error) {
+      // If foreign key constraint prevents hard delete, soft delete / set INACTIVE
+      await supabaseAdmin.from('staff_profiles').update({ status: 'INACTIVE' }).eq('id', id);
+    }
+
+    // Audit Log
+    await supabaseAdmin.from('audit_logs').insert({
+      actor_user_id: adminId,
+      actor_user_name: req.user?.fullName || 'Admin',
+      actor_user_role: req.user?.role || 'admin',
+      action: 'DELETE_EMPLOYEE_ACCOUNT',
+      entity_type: 'staff_profile',
+      entity_id: id,
+      details: `Admin removed employee account ${id}.`,
+    });
+
+    res.json({
+      success: true,
+      message: 'Employee successfully removed from office.',
+    } as ApiResponse);
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: err.message } });
+  }
+};
+

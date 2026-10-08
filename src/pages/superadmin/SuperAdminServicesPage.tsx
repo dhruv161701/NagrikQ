@@ -8,6 +8,7 @@ import { Input } from '../../components/ui/Input';
 import { SkeletonCard } from '../../components/ui/skeleton';
 import { ToastContainer } from '../../components/ui/Toast';
 import type { ToastMessage } from '../../components/ui/Toast';
+import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import {
   Plus,
   Search,
@@ -23,6 +24,8 @@ import {
   Tag,
   IndianRupee,
   Edit,
+  Calendar,
+  Users,
 } from 'lucide-react';
 
 interface DocumentRequirement {
@@ -211,17 +214,21 @@ export const SuperAdminServicesPage: React.FC = () => {
   const [documentOption, setDocumentOption] = useState<'STANDARD' | 'STATE_SPECIFIC'>('STANDARD');
   const [extraStateDocuments, setExtraStateDocuments] = useState<ExtraStateDocument[]>([]);
 
+  // Delete Confirmation State
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [serviceToDelete, setServiceToDelete] = useState<ServiceItem | null>(null);
+
   useEffect(() => {
-    fetchServices();
-    const interval = setInterval(fetchServices, 2500);
+    fetchServices(true);
+    const interval = setInterval(() => fetchServices(false), 3000);
 
     const channel = supabase
       .channel('realtime_superadmin_services')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'services' }, () => {
-        fetchServices();
+        fetchServices(false);
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'document_requirements' }, () => {
-        fetchServices();
+        fetchServices(false);
       })
       .subscribe();
 
@@ -231,9 +238,9 @@ export const SuperAdminServicesPage: React.FC = () => {
     };
   }, []);
 
-  const fetchServices = async () => {
+  const fetchServices = async (isInitial = false) => {
     try {
-      setLoading(true);
+      if (isInitial) setLoading(true);
       const res = await fetch('/api/services?include_inactive=true');
       const responseData = await res.json();
 
@@ -251,7 +258,69 @@ export const SuperAdminServicesPage: React.FC = () => {
     } catch (err: any) {
       console.error('Error fetching global services:', err);
     } finally {
-      setLoading(false);
+      if (isInitial) setLoading(false);
+    }
+  };
+
+  const handleToggleServiceStatus = async (srv: ServiceItem) => {
+    const newStatus = !srv.is_active;
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData?.session?.access_token || '';
+
+      // Optimistic update
+      setServices((prev) =>
+        prev.map((s) => (s.id === srv.id ? { ...s, is_active: newStatus } : s))
+      );
+
+      const res = await fetch(`/api/super-admin/services/${srv.id}/status`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ isActive: newStatus }),
+      });
+
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        throw new Error(json.error?.message || 'Failed to update service status.');
+      }
+
+      addToast('success', 'Service Status Updated', `Service is now ${newStatus ? 'ACTIVE' : 'INACTIVE'}.`);
+    } catch (err: any) {
+      // Revert on error
+      setServices((prev) =>
+        prev.map((s) => (s.id === srv.id ? { ...s, is_active: srv.is_active } : s))
+      );
+      addToast('error', 'Status Update Failed', err.message);
+    }
+  };
+
+  const handleConfirmDeleteService = async () => {
+    if (!serviceToDelete) return;
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData?.session?.access_token || '';
+
+      const res = await fetch(`/api/super-admin/services/${serviceToDelete.id}`, {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        throw new Error(json.error?.message || 'Failed to delete service.');
+      }
+
+      setServices((prev) => prev.filter((s) => s.id !== serviceToDelete.id));
+      setDeleteConfirmOpen(false);
+      setServiceToDelete(null);
+      addToast('success', 'Service Deleted', `"${serviceToDelete.name}" has been permanently deleted.`);
+    } catch (err: any) {
+      addToast('error', 'Delete Failed', err.message);
     }
   };
 
@@ -620,9 +689,9 @@ export const SuperAdminServicesPage: React.FC = () => {
       </Card>
 
       {/* Services Grid */}
-      {loading ? (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: '20px' }}>
-          {Array.from({ length: 6 }).map((_, i) => (
+      {loading && services.length === 0 ? (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(540px, 1fr))', gap: '24px' }}>
+          {Array.from({ length: 4 }).map((_, i) => (
             <SkeletonCard key={i} />
           ))}
         </div>
@@ -639,7 +708,7 @@ export const SuperAdminServicesPage: React.FC = () => {
           </p>
         </Card>
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: '20px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(540px, 1fr))', gap: '24px' }}>
           {filteredServices.map((srv) => (
             <Card key={srv.id} padding="20px" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
               <div>
@@ -678,7 +747,7 @@ export const SuperAdminServicesPage: React.FC = () => {
                 </p>
 
                 {/* Key Details */}
-                <div style={{ display: 'flex', gap: '16px', marginBottom: '16px', flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', gap: '14px', marginBottom: '14px', flexWrap: 'wrap' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', color: 'var(--color-neutral-700)' }}>
                     <Clock size={16} style={{ color: 'var(--color-accent-600)' }} />
                     <span>SLA: <strong>{srv.processing_time_days} Days</strong></span>
@@ -687,6 +756,22 @@ export const SuperAdminServicesPage: React.FC = () => {
                     <IndianRupee size={16} style={{ color: 'var(--color-success-600)' }} />
                     <span>Fee: <strong>{srv.fee_amount > 0 ? `₹${srv.fee_amount.toFixed(2)}` : 'FREE'}</strong></span>
                   </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', color: 'var(--color-neutral-700)' }}>
+                    <Calendar size={16} style={{ color: 'var(--color-primary-600)' }} />
+                    <span>Validity: <strong>{srv.category === 'Revenue' ? '3 Years' : srv.category === 'Social Welfare' ? 'Lifetime' : '1 Year'}</strong></span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', color: 'var(--color-neutral-700)' }}>
+                    <Users size={16} style={{ color: 'var(--color-saffron-600)' }} />
+                    <span>Capacity: <strong>{Math.max(2, Math.floor(30 / (srv.processing_time_days > 10 ? 10 : 5)))} / 30m slot</strong></span>
+                  </div>
+                </div>
+
+                {/* Counter Path Navigation Sequence */}
+                <div style={{ backgroundColor: 'rgba(15, 42, 74, 0.05)', padding: '10px 14px', borderRadius: '8px', marginBottom: '14px', border: '1px solid var(--color-border)', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', flexWrap: 'wrap' }}>
+                  <strong style={{ color: 'var(--color-primary-900)' }}>Counter Navigation Route:</strong>
+                  <span style={{ color: 'var(--color-primary-700)', fontWeight: 600 }}>
+                    Counter 1 (Intake) → Counter 3 (Document Verification) → Counter 5 (Dispatch)
+                  </span>
                 </div>
 
                 {/* Required Documents Pill Summary */}
@@ -721,26 +806,63 @@ export const SuperAdminServicesPage: React.FC = () => {
                 </div>
               </div>
 
-              {/* Bottom Footer info */}
+              {/* Bottom Footer info & Actions */}
               <div style={{ paddingTop: '12px', borderTop: '1px solid var(--color-neutral-100)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12px', color: 'var(--color-neutral-500)', flexWrap: 'wrap', gap: '8px' }}>
                 <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                   <Globe size={14} style={{ color: 'var(--color-primary-600)' }} />
                   All-India Rollout
                 </span>
 
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => handleOpenEditModal(srv)}
-                  style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px', padding: '4px 10px' }}
-                >
-                  <Edit size={13} /> Edit Service
-                </Button>
+                <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                  <Button
+                    variant={srv.is_active ? 'outline' : 'primary'}
+                    size="sm"
+                    onClick={() => handleToggleServiceStatus(srv)}
+                    style={{ fontSize: '11px', padding: '4px 8px' }}
+                  >
+                    {srv.is_active ? 'Set Inactive' : 'Set Active'}
+                  </Button>
+
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleOpenEditModal(srv)}
+                    style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', padding: '4px 8px' }}
+                  >
+                    <Edit size={12} /> Edit
+                  </Button>
+
+                  <Button
+                    variant="danger"
+                    size="sm"
+                    onClick={() => {
+                      setServiceToDelete(srv);
+                      setDeleteConfirmOpen(true);
+                    }}
+                    style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', padding: '4px 8px' }}
+                  >
+                    <Trash2 size={12} /> Delete
+                  </Button>
+                </div>
               </div>
             </Card>
           ))}
         </div>
       )}
+
+      {/* CONFIRM DELETE SERVICE DIALOG */}
+      <ConfirmDialog
+        isOpen={deleteConfirmOpen}
+        onClose={() => {
+          setDeleteConfirmOpen(false);
+          setServiceToDelete(null);
+        }}
+        onConfirm={handleConfirmDeleteService}
+        title="Delete Government Service"
+        message={`Are you sure you want to permanently delete "${serviceToDelete?.name || 'this service'}"? This will remove all associated document requirements and office linkages across all states.`}
+        confirmText="Delete Service"
+        variant="danger"
+      />
 
       {/* CREATE / EDIT SERVICE MODAL */}
       <Modal

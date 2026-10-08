@@ -19,6 +19,9 @@ import {
   getOfficerQueueTokens,
   callNextToken,
   updateTokenStatus,
+  cancelToken,
+  advanceCounter,
+  rebookToken,
 } from '../controllers/queueController';
 import {
   createChangeRequest,
@@ -26,6 +29,8 @@ import {
   getAuditLogs,
   createEmployeeUser,
   getEmployeesList,
+  updateEmployeeUser,
+  deleteEmployeeUser,
   setupOfficeConfig,
 } from '../controllers/adminController';
 import {
@@ -37,6 +42,8 @@ import {
   deleteAdminUser,
   createGlobalService,
   updateGlobalService,
+  deleteGlobalService,
+  toggleGlobalServiceStatus,
 } from '../controllers/superAdminController';
 import {
   submitComplaint,
@@ -71,6 +78,10 @@ router.get('/queue/live', authenticateToken, getLiveQueue);
 router.get('/queue/tokens', authenticateToken, requireRole('employee', 'admin', 'superadmin'), getOfficerQueueTokens);
 router.post('/queue/next', authenticateToken, requireRole('employee', 'admin', 'superadmin'), callNextToken);
 router.patch('/queue/tokens/:id/status', authenticateToken, requireRole('employee', 'admin', 'superadmin'), updateTokenStatus);
+router.patch('/queue/tokens/:id/cancel', authenticateToken, cancelToken);
+router.delete('/queue/tokens/:id', authenticateToken, cancelToken);
+router.post('/queue/tokens/:id/advance-counter', authenticateToken, requireRole('employee', 'admin', 'superadmin'), advanceCounter);
+router.post('/queue/tokens/:id/rebook', authenticateToken, rebookToken);
 
 router.post('/complaints', authenticateToken, submitComplaint);
 router.get('/complaints', authenticateToken, getComplaints);
@@ -78,6 +89,8 @@ router.get('/complaints', authenticateToken, getComplaints);
 // ADMIN ROUTES
 router.post('/admin/employees', authenticateToken, requireRole('admin', 'superadmin'), createEmployeeUser);
 router.get('/admin/employees', authenticateToken, requireRole('admin', 'superadmin'), getEmployeesList);
+router.patch('/admin/employees/:id', authenticateToken, requireRole('admin', 'superadmin'), updateEmployeeUser);
+router.delete('/admin/employees/:id', authenticateToken, requireRole('admin', 'superadmin'), deleteEmployeeUser);
 router.post('/admin/office/setup', authenticateToken, requireRole('admin', 'superadmin'), setupOfficeConfig);
 router.post('/change-requests', authenticateToken, requireRole('admin', 'superadmin'), createChangeRequest);
 router.get('/change-requests', authenticateToken, requireRole('admin', 'superadmin'), getChangeRequests);
@@ -90,6 +103,8 @@ router.patch('/super-admin/admins/:id', authenticateToken, requireRole('superadm
 router.delete('/super-admin/admins/:id', authenticateToken, requireRole('superadmin'), deleteAdminUser);
 router.post('/super-admin/services', authenticateToken, requireRole('superadmin'), createGlobalService);
 router.put('/super-admin/services/:id', authenticateToken, requireRole('superadmin'), updateGlobalService);
+router.delete('/super-admin/services/:id', authenticateToken, requireRole('superadmin'), deleteGlobalService);
+router.patch('/super-admin/services/:id/status', authenticateToken, requireRole('superadmin'), toggleGlobalServiceStatus);
 router.patch('/change-requests/:id/review', authenticateToken, requireRole('superadmin'), reviewChangeRequest);
 router.get('/analytics/system', authenticateToken, requireRole('superadmin'), getSystemAnalytics);
 

@@ -64,7 +64,8 @@ export const SuperAdminChangeRequestsPage: React.FC = () => {
       )
       .subscribe();
 
-    const interval = setInterval(fetchChangeRequests, 2500);
+    fetchChangeRequests(true);
+    const interval = setInterval(() => fetchChangeRequests(false), 3000);
 
     return () => {
       clearInterval(interval);
@@ -72,9 +73,9 @@ export const SuperAdminChangeRequestsPage: React.FC = () => {
     };
   }, []);
 
-  const fetchChangeRequests = async () => {
+  const fetchChangeRequests = async (isInitial = false) => {
     try {
-      setLoading(true);
+      if (isInitial) setLoading(true);
       const { data: sessionData } = await supabase.auth.getSession();
       const token = sessionData?.session?.access_token || '';
 
@@ -99,7 +100,7 @@ export const SuperAdminChangeRequestsPage: React.FC = () => {
     } catch (err) {
       console.warn('Error fetching change requests:', err);
     } finally {
-      setLoading(false);
+      if (isInitial) setLoading(false);
     }
   };
 
