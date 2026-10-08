@@ -5,6 +5,8 @@ import { Card } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { StatusBadge } from '../../components/ui/StatusBadge';
 import { EmptyState } from '../../components/ui/EmptyState';
+import { Modal } from '../../components/ui/Modal';
+import { getCityTables, normalizeTableNumber } from '../../utils/cityTables';
 import {
   Play,
   CheckCircle,
@@ -24,14 +26,19 @@ export const EmployeeDashboardPage: React.FC = () => {
     applications,
     callNextToken,
     updateTokenStatus,
+    routeToNextTable,
     updateApplicationStatus,
-    advanceTokenCounterStep,
   } = useData();
 
-  const [activeCounter, setActiveCounter] = useState<string>('C-04');
+  const [activeCounter, setActiveCounter] = useState<string>('C-1');
   const [isQueuePaused, setIsQueuePaused] = useState(false);
   const [announcementMsg, setAnnouncementMsg] = useState<string>('');
   const [callAlert, setCallAlert] = useState<string>('');
+
+  // NEXT TABLE MODAL STATE
+  const [isNextTableModalOpen, setIsNextTableModalOpen] = useState(false);
+  const [selectedNextTable, setSelectedNextTable] = useState('C-2');
+  const [isSubmittingNextTable, setIsSubmittingNextTable] = useState(false);
 
   // EMPLOYEE ASSIGNED SERVICES STATE (Saved per user)
   const empStorageKey = currentUser?.id ? `nagrikq_emp_services_${currentUser.id}` : 'nagrikq_emp_services_default';
@@ -74,12 +81,30 @@ export const EmployeeDashboardPage: React.FC = () => {
     });
   }, [queueTokens, selectedServiceIds]);
 
-  // Current Citizen at this counter
+  // Current Citizen at this counter (supporting both C-1 and C-01 format)
   const currentCitizen = useMemo(() => {
+    const normActive = normalizeTableNumber(activeCounter);
     return queueTokens.find(
-      (q) => q.counterNumber === activeCounter && (q.status === 'IN_SERVICE' || q.status === 'CALLED')
+      (q) =>
+        normalizeTableNumber(q.counterNumber) === normActive &&
+        (q.status === 'IN_SERVICE' || q.status === 'CALLED')
     );
   }, [queueTokens, activeCounter]);
+
+  // Available next tables for citizen's city (excluding current active counter)
+  const availableCityTables = useMemo(() => {
+    const city = currentCitizen?.selectedCity || 'Rajkot';
+    const all = getCityTables(city);
+    const currNorm = normalizeTableNumber(activeCounter);
+    return all.filter((t) => normalizeTableNumber(t) !== currNorm);
+  }, [currentCitizen, activeCounter]);
+
+  // Synchronize default selected next table when modal opens or tables change
+  useEffect(() => {
+    if (availableCityTables.length > 0 && !availableCityTables.includes(selectedNextTable)) {
+      setSelectedNextTable(availableCityTables[0]);
+    }
+  }, [availableCityTables, selectedNextTable]);
 
   // Waiting citizens for officer's assigned services
   const waitingTokens = useMemo(() => {
@@ -88,8 +113,9 @@ export const EmployeeDashboardPage: React.FC = () => {
 
   // Completed today at this counter
   const completedToday = useMemo(() => {
+    const normActive = normalizeTableNumber(activeCounter);
     return queueTokens.filter(
-      (q) => q.counterNumber === activeCounter && q.status === 'COMPLETED'
+      (q) => normalizeTableNumber(q.counterNumber) === normActive && q.status === 'COMPLETED'
     ).length;
   }, [queueTokens, activeCounter]);
 
@@ -121,35 +147,55 @@ export const EmployeeDashboardPage: React.FC = () => {
     }
   };
 
-  // 1. Send to Next Counter
-  const handleSendToNextCounter = async () => {
+  // 1. COMPLETE: Citizen's turn at this counter ends, counter freed immediately
+  const handleComplete = async () => {
     if (currentCitizen) {
-      await advanceTokenCounterStep(currentCitizen.id);
-      await handleCallNext();
-    }
-  };
-
-  // 2. Complete & Next
-  const handleCompleteAndNext = async () => {
-    if (currentCitizen) {
-      await updateTokenStatus(currentCitizen.id, 'COMPLETED');
+      const citizenToken = currentCitizen;
+      await updateTokenStatus(citizenToken.id, 'COMPLETED');
       const citizenApp = applications.find(
         (a) =>
-          a.id === currentCitizen.applicationId ||
-          (a.citizenId === currentCitizen.citizenId && (a.status === 'SUBMITTED' || a.status === 'UNDER_REVIEW'))
+          a.id === citizenToken.applicationId ||
+          (a.citizenId === citizenToken.citizenId && (a.status === 'SUBMITTED' || a.status === 'UNDER_REVIEW'))
       );
       if (citizenApp) {
         await updateApplicationStatus(citizenApp.id, 'COMPLETED', `Completed and processed at Counter ${activeCounter}.`);
       }
-      await handleCallNext();
+      setAnnouncementMsg(`✓ Completed turn for Citizen ${citizenToken.tokenNumber} at Counter ${activeCounter}. Counter is now free.`);
+      setTimeout(() => setAnnouncementMsg(''), 6000);
     }
   };
 
-  // 3. No Show
+  // 2. NEXT TABLE: Open modal to pick next physical table
+  const handleOpenNextTableModal = () => {
+    if (availableCityTables.length > 0) {
+      setSelectedNextTable(availableCityTables[0]);
+    }
+    setIsNextTableModalOpen(true);
+  };
+
+  // 2B. CONFIRM NEXT TABLE: Route citizen to next destination, complete turn at current counter, free counter immediately
+  const handleConfirmNextTable = async () => {
+    if (!currentCitizen || !selectedNextTable) return;
+    const citizenToken = currentCitizen;
+    const targetTable = selectedNextTable;
+    setIsSubmittingNextTable(true);
+    try {
+      await routeToNextTable(citizenToken.id, targetTable);
+      setIsNextTableModalOpen(false);
+      setAnnouncementMsg(`✓ Citizen ${citizenToken.tokenNumber} directed to Table ${targetTable}. Counter ${activeCounter} is now free.`);
+      setTimeout(() => setAnnouncementMsg(''), 6000);
+    } finally {
+      setIsSubmittingNextTable(false);
+    }
+  };
+
+  // 3. NO SHOW
   const handleNoShow = async () => {
     if (currentCitizen) {
-      await updateTokenStatus(currentCitizen.id, 'NO_SHOW');
-      await handleCallNext();
+      const citizenToken = currentCitizen;
+      await updateTokenStatus(citizenToken.id, 'NO_SHOW');
+      setAnnouncementMsg(`Citizen ${citizenToken.tokenNumber} marked as No Show. Counter ${activeCounter} is now free.`);
+      setTimeout(() => setAnnouncementMsg(''), 5000);
     }
   };
 
@@ -254,7 +300,7 @@ export const EmployeeDashboardPage: React.FC = () => {
                 color: 'var(--color-primary-900)',
               }}
             >
-              {['C-01', 'C-02', 'C-03', 'C-04', 'C-05', 'C-06'].map((c) => (
+              {['C-1', 'C-2', 'C-3', 'C-4', 'C-5', 'C-6'].map((c) => (
                 <option key={c} value={c}>{c}</option>
               ))}
             </select>
@@ -288,28 +334,33 @@ export const EmployeeDashboardPage: React.FC = () => {
                 <span style={{ fontSize: '0.95rem', color: 'var(--color-primary-700)', fontWeight: 600 }}>
                   Citizen: {currentCitizen.citizenName} ({currentCitizen.citizenPhone})
                 </span>
+                <div style={{ fontSize: '0.8rem', color: 'var(--color-neutral-500)', marginTop: '2px' }}>
+                  Location: {currentCitizen.selectedCity || 'Rajkot'} • Counter: {activeCounter}
+                </div>
               </div>
 
               <StatusBadge status={currentCitizen.status} />
             </div>
 
-            {/* Officer Action Toolbar - STRICT 3 ACTIONS */}
-            <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
-              <Button
-                variant="primary"
-                size="md"
-                onClick={handleSendToNextCounter}
-                icon={<ArrowRight size={18} />}
-              >
-                Send to Next Counter
-              </Button>
+            {/* Officer Action Toolbar - STRICT COMPLETE OR NEXT TABLE */}
+            <div style={{ display: 'flex', gap: '14px', flexWrap: 'wrap', alignItems: 'center' }}>
               <Button
                 variant="saffron"
                 size="md"
-                onClick={handleCompleteAndNext}
+                onClick={handleComplete}
                 icon={<CheckCircle size={18} />}
+                style={{ fontWeight: 800, padding: '10px 20px' }}
               >
-                Complete & Next
+                Complete
+              </Button>
+              <Button
+                variant="primary"
+                size="md"
+                onClick={handleOpenNextTableModal}
+                icon={<ArrowRight size={18} />}
+                style={{ fontWeight: 800, padding: '10px 20px' }}
+              >
+                Next Table →
               </Button>
               <Button
                 variant="danger"
@@ -400,6 +451,112 @@ export const EmployeeDashboardPage: React.FC = () => {
           )}
         </Card>
       </div>
+
+      {/* MODAL: DIRECT CITIZEN TO NEXT TABLE */}
+      <Modal
+        isOpen={isNextTableModalOpen}
+        onClose={() => setIsNextTableModalOpen(false)}
+        title="Direct Citizen to Next Physical Table"
+        description="Select the physical table the citizen must visit next in this government office."
+        maxWidth="520px"
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          {currentCitizen && (
+            <div
+              style={{
+                backgroundColor: 'var(--color-primary-50)',
+                border: '1px solid var(--color-primary-100)',
+                padding: '16px',
+                borderRadius: '12px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '8px',
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '0.85rem', color: 'var(--color-neutral-600)', fontWeight: 600 }}>
+                  Citizen:
+                </span>
+                <span style={{ fontWeight: 800, color: 'var(--color-primary-950)' }}>
+                  {currentCitizen.citizenName} ({currentCitizen.tokenNumber})
+                </span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '0.85rem', color: 'var(--color-neutral-600)', fontWeight: 600 }}>
+                  Current Counter:
+                </span>
+                <span style={{ fontWeight: 700, color: 'var(--color-neutral-800)' }}>
+                  Counter {activeCounter}
+                </span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '0.85rem', color: 'var(--color-neutral-600)', fontWeight: 600 }}>
+                  City Complex:
+                </span>
+                <span style={{ fontWeight: 700, color: 'var(--color-neutral-800)' }}>
+                  {currentCitizen.selectedCity || 'Rajkot'}
+                </span>
+              </div>
+            </div>
+          )}
+
+          <div>
+            <label
+              style={{
+                display: 'block',
+                fontSize: '0.9rem',
+                fontWeight: 700,
+                color: 'var(--color-neutral-800)',
+                marginBottom: '8px',
+              }}
+            >
+              Select Next Table Destination
+            </label>
+            <select
+              value={selectedNextTable}
+              onChange={(e) => setSelectedNextTable(e.target.value)}
+              style={{
+                width: '100%',
+                padding: '12px 14px',
+                borderRadius: '10px',
+                border: '1px solid var(--color-neutral-300)',
+                fontSize: '1rem',
+                fontWeight: 700,
+                color: 'var(--color-primary-900)',
+                backgroundColor: 'white',
+              }}
+            >
+              {availableCityTables.map((tbl) => (
+                <option key={tbl} value={tbl}>
+                  Table {tbl}
+                </option>
+              ))}
+            </select>
+            <p style={{ margin: '8px 0 0 0', fontSize: '0.82rem', color: 'var(--color-neutral-500)' }}>
+              Note: The officer at the next table works physically outside NagrikQ. As soon as you confirm, the citizen will be notified to proceed to Table {selectedNextTable}, and Counter {activeCounter} will immediately become free for your next citizen.
+            </p>
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '8px' }}>
+            <Button
+              variant="secondary"
+              onClick={() => setIsNextTableModalOpen(false)}
+              disabled={isSubmittingNextTable}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              onClick={handleConfirmNextTable}
+              disabled={isSubmittingNextTable}
+              icon={<ArrowRight size={16} />}
+              style={{ fontWeight: 800 }}
+            >
+              Confirm & Direct to {selectedNextTable}
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 };

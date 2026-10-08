@@ -137,6 +137,16 @@ export const UserQueuePage: React.FC = () => {
       : rawActiveToken
     : undefined;
 
+  // Directed token: A citizen's token that was completed at their initial counter and directed to the next table
+  const directedToken = useMemo(() => {
+    return myAllTokens.find(
+      (t) => !!t.nextCounter && t.status === 'COMPLETED'
+    );
+  }, [myAllTokens]);
+
+  const [dismissedDirectedId, setDismissedDirectedId] = useState<string | null>(null);
+  const activeDirectiveToken = directedToken && directedToken.id !== dismissedDirectedId ? directedToken : null;
+
   // States
   const [refreshing, setRefreshing] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(true);
@@ -554,11 +564,105 @@ export const UserQueuePage: React.FC = () => {
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
           <SkeletonCard />
         </div>
-      ) : activeToken ? (
-        /* ============================================================ */
-        /* ACTIVE TOKEN VIEW                                           */
-        /* ============================================================ */
+      ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+          {/* REALTIME NEXT TABLE DIRECTIVE CARD */}
+          {activeDirectiveToken && (
+            <Card
+              padding="28px"
+              style={{
+                backgroundColor: '#EFF6FF',
+                border: '3px solid #2563EB',
+                borderRadius: '20px',
+                boxShadow: '0 12px 32px rgba(37, 99, 235, 0.22)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '18px',
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '14px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                  <div
+                    style={{
+                      width: '60px',
+                      height: '60px',
+                      borderRadius: '16px',
+                      backgroundColor: '#2563EB',
+                      color: 'white',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      boxShadow: '0 6px 16px rgba(37, 99, 235, 0.35)',
+                    }}
+                  >
+                    <ArrowRight size={34} />
+                  </div>
+                  <div>
+                    <span style={{ fontSize: '0.85rem', fontWeight: 800, color: '#1D4ED8', textTransform: 'uppercase', letterSpacing: '1px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span style={{ height: '8px', width: '8px', borderRadius: '50%', backgroundColor: '#2563EB', display: 'inline-block' }} />
+                      Office Counter Directive • {activeDirectiveToken.selectedCity || 'Rajkot'}
+                    </span>
+                    <h2 style={{ fontSize: '2.4rem', fontWeight: 900, color: '#1E3A8A', margin: '4px 0 0 0', lineHeight: 1.1 }}>
+                      Please go to {activeDirectiveToken.nextCounter}
+                    </h2>
+                  </div>
+                </div>
+
+                <div style={{ textAlign: 'right', backgroundColor: 'rgba(255, 255, 255, 0.8)', padding: '10px 18px', borderRadius: '12px', border: '1px solid #BFDBFE' }}>
+                  <span style={{ fontSize: '0.78rem', color: '#64748B', fontWeight: 700, textTransform: 'uppercase' }}>Token</span>
+                  <div style={{ fontSize: '1.8rem', fontWeight: 900, color: '#1E3A8A', lineHeight: 1 }}>
+                    {activeDirectiveToken.tokenNumber}
+                  </div>
+                </div>
+              </div>
+
+              <div
+                style={{
+                  backgroundColor: 'white',
+                  padding: '18px 22px',
+                  borderRadius: '14px',
+                  border: '1px solid #DBEAFE',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '8px',
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px', fontSize: '0.95rem' }}>
+                  <div>
+                    <span style={{ color: '#64748B', fontWeight: 600 }}>Service: </span>
+                    <strong style={{ color: '#0F172A' }}>{activeDirectiveToken.serviceName}</strong>
+                  </div>
+                  <div>
+                    <span style={{ color: '#64748B', fontWeight: 600 }}>Completed At: </span>
+                    <strong style={{ color: '#0F172A' }}>Counter {activeDirectiveToken.counterNumber || 'Previous Counter'}</strong>
+                  </div>
+                </div>
+                <p style={{ margin: '6px 0 0 0', fontSize: '0.95rem', color: '#334155', lineHeight: 1.5 }}>
+                  Your service interaction at <strong>Counter {activeDirectiveToken.counterNumber || 'previous desk'}</strong> has concluded. Please physically proceed to <strong>Table {activeDirectiveToken.nextCounter}</strong> where the official will assist you with the next stage of your application manually.
+                </p>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+                <span style={{ fontSize: '0.82rem', color: '#64748B' }}>
+                  Staff at Table {activeDirectiveToken.nextCounter} work directly at physical desks outside the digital queue.
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setDismissedDirectedId(activeDirectiveToken.id)}
+                  style={{ borderColor: '#93C5FD', color: '#1D4ED8', fontWeight: 700 }}
+                >
+                  Dismiss Navigation
+                </Button>
+              </div>
+            </Card>
+          )}
+
+          {activeToken ? (
+            /* ============================================================ */
+            /* ACTIVE TOKEN VIEW                                           */
+            /* ============================================================ */
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
           {/* Expired Token Alert Banner (Grace Period Passed) */}
           {activeToken.status === 'EXPIRED' ? (
             <div
@@ -727,79 +831,30 @@ export const UserQueuePage: React.FC = () => {
               </div>
             </div>
 
-            {/* MULTIPLE COUNTER / TABLE NAVIGATION ROUTE */}
-            {activeToken.counterPath && activeToken.counterPath.length > 0 && (
+            {/* REALTIME NEXT PHYSICAL TABLE DESTINATION */}
+            {activeToken.nextCounter && (
               <div
                 style={{
-                  backgroundColor: 'rgba(255, 255, 255, 0.08)',
+                  backgroundColor: 'rgba(37, 99, 235, 0.25)',
                   backdropFilter: 'blur(8px)',
-                  padding: '18px 20px',
+                  padding: '18px 22px',
                   borderRadius: '14px',
-                  border: '1px solid rgba(255, 255, 255, 0.15)',
+                  border: '2px solid rgba(255, 255, 255, 0.4)',
                   display: 'flex',
-                  flexDirection: 'column',
-                  gap: '12px',
+                  alignItems: 'center',
+                  gap: '16px',
                 }}
               >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
-                  <span style={{ fontSize: '0.85rem', fontWeight: 800, color: 'var(--color-saffron-400)', textTransform: 'uppercase', letterSpacing: '1px' }}>
-                    🗺️ Required Counter Route ({activeToken.counterPath.length} Desks)
-                  </span>
-                  <span style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.75)', fontWeight: 600 }}>
-                    Current Stage: <strong>Step {(activeToken.currentCounterIndex ?? 0) + 1} of {activeToken.counterPath.length}</strong>
-                  </span>
+                <div style={{ width: '44px', height: '44px', borderRadius: '12px', backgroundColor: 'white', color: '#2563EB', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <ArrowRight size={24} />
                 </div>
-
-                {/* Sequence Path Chips */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-                  {activeToken.counterPath.map((step, sIdx) => {
-                    const isCurrent = sIdx === (activeToken.currentCounterIndex ?? 0);
-                    const isPassed = sIdx < (activeToken.currentCounterIndex ?? 0);
-                    return (
-                      <React.Fragment key={sIdx}>
-                        <div
-                          style={{
-                            padding: '8px 14px',
-                            borderRadius: '8px',
-                            backgroundColor: isCurrent
-                              ? 'var(--color-saffron-500)'
-                              : isPassed
-                              ? 'rgba(16, 185, 129, 0.25)'
-                              : 'rgba(255, 255, 255, 0.08)',
-                            color: isCurrent ? '#000' : 'white',
-                            fontWeight: isCurrent ? 800 : 600,
-                            fontSize: '0.85rem',
-                            border: isCurrent
-                              ? '2px solid white'
-                              : isPassed
-                              ? '1px solid rgba(16, 185, 129, 0.5)'
-                              : '1px solid rgba(255, 255, 255, 0.1)',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '6px',
-                            boxShadow: isCurrent ? '0 4px 14px rgba(245, 158, 11, 0.4)' : 'none',
-                          }}
-                        >
-                          <span>{isPassed ? '✓' : `${sIdx + 1}.`}</span>
-                          <span>{step}</span>
-                          {isCurrent && (
-                            <span style={{ fontSize: '10px', backgroundColor: '#000', color: '#fff', padding: '2px 6px', borderRadius: '4px', marginLeft: '4px' }}>
-                              ACTIVE
-                            </span>
-                          )}
-                        </div>
-                        {sIdx < (activeToken.counterPath?.length ?? 0) - 1 && (
-                          <span style={{ color: 'rgba(255,255,255,0.4)', fontWeight: 800, fontSize: '1rem' }}>
-                            →
-                          </span>
-                        )}
-                      </React.Fragment>
-                    );
-                  })}
-                </div>
-
-                <div style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.75)', lineHeight: '1.4' }}>
-                  Follow this sequence in order. You are currently at <strong>{activeToken.counterPath[activeToken.currentCounterIndex ?? 0] || `Counter ${activeToken.counterNumber}`}</strong>. The desk officer will stamp and route you forward.
+                <div>
+                  <span style={{ fontSize: '0.8rem', color: '#93C5FD', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                    Next Physical Desk Destination
+                  </span>
+                  <div style={{ fontSize: '1.5rem', fontWeight: 900, color: 'white' }}>
+                    Please go to {activeToken.nextCounter}
+                  </div>
                 </div>
               </div>
             )}
@@ -1068,6 +1123,8 @@ export const UserQueuePage: React.FC = () => {
           </div>
         </div>
       )}
+    </div>
+  )}
 
       {/* ============================================================ */}
       {/* CITIZEN TOKEN HISTORY SECTION                                */}

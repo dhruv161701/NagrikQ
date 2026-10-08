@@ -161,6 +161,7 @@ export interface QueueToken {
   selectedCity?: string; // e.g. 'Rajkot'
   counterPath?: string[]; // e.g. ['Counter 1', 'Counter 3', 'Counter 5']
   currentCounterIndex?: number;
+  nextCounter?: string; // e.g. 'C-2' or 'C-3' assigned by employee
   isLate?: boolean;
   gracePeriodMinutes?: number;
   submittedDocuments?: { requirementName: string; fileName: string; status: string; fileUrl?: string; issueDate?: string; expiryDate?: string }[];

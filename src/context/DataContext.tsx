@@ -59,7 +59,8 @@ interface DataContextType {
   rebookExpiredTokenSlot: (tokenId: string, newTimeSlot: string, newSlotDate?: string) => Promise<QueueToken | undefined>;
   updateEmployeeBreakSchedule: (employeeId: string, breakStartTime: string, breakEndTime: string) => Promise<void>;
   callNextToken: (counterNumber?: string, serviceIds?: string[]) => Promise<QueueToken | undefined>;
-  updateTokenStatus: (tokenId: string, status: QueueToken['status']) => Promise<void>;
+  updateTokenStatus: (tokenId: string, status: QueueToken['status'], nextCounter?: string) => Promise<void>;
+  routeToNextTable: (tokenId: string, nextCounter: string) => Promise<void>;
   submitApplication: (serviceId: string, serviceName: string, citizenId: string, citizenName: string, citizenPhone: string, docs: { requirementId: string; requirementName: string; fileName: string }[]) => Promise<Application> | Application;
   updateDocumentStatus: (applicationId: string, docId: string, status: 'VERIFIED' | 'REJECTED' | 'NEEDS_CORRECTION', notes?: string) => Promise<void>;
   updateApplicationStatus: (applicationId: string, status: Application['status'], note: string) => Promise<void>;
@@ -185,6 +186,7 @@ const mapDBTokenToQueueToken = (row: any): QueueToken => {
     selectedCity: row.selected_city || row.offices?.district || 'Rajkot',
     counterPath,
     currentCounterIndex: currentIdx,
+    nextCounter: row.next_counter || row.nextCounter || (row.applications?.remarks && String(row.applications.remarks).includes('Direct to Table ') ? String(row.applications.remarks).replace('Direct to Table ', '').trim() : undefined),
     isLate: !!row.is_late,
     gracePeriodMinutes: row.grace_period_minutes || 15,
     submittedDocuments: Array.isArray(row.submitted_documents) ? row.submitted_documents : undefined,
@@ -834,9 +836,11 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   // UPDATE TOKEN STATUS
-  const handleUpdateTokenStatus = async (tokenId: string, status: QueueToken['status']): Promise<void> => {
-    mockRepository.updateTokenStatus(tokenId, status);
-    setDbQueueTokens((prev) => prev.map((q) => (q.id === tokenId ? { ...q, status } : q)));
+  const handleUpdateTokenStatus = async (tokenId: string, status: QueueToken['status'], nextCounter?: string): Promise<void> => {
+    mockRepository.updateTokenStatus(tokenId, status, nextCounter);
+    setDbQueueTokens((prev) =>
+      prev.map((q) => (q.id === tokenId ? { ...q, status, ...(nextCounter ? { nextCounter } : {}) } : q))
+    );
 
     try {
       const { data: sessionData } = await supabase.auth.getSession();
@@ -848,10 +852,54 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ status }),
+        body: JSON.stringify({ status, nextCounter }),
       });
     } catch (err) {
       console.warn('[DataContext] Update token status API warning:', err);
+    }
+  };
+
+  // ROUTE TO NEXT TABLE
+  const handleRouteToNextTable = async (tokenId: string, nextCounter: string): Promise<void> => {
+    mockRepository.routeToNextTable(tokenId, nextCounter);
+    setDbQueueTokens((prev) =>
+      prev.map((q) => (q.id === tokenId ? { ...q, status: 'COMPLETED', nextCounter } : q))
+    );
+
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData?.session?.access_token || '';
+
+      const res = await fetch(`/api/queue/tokens/${tokenId}/next-table`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ nextCounter }),
+      });
+
+      if (!res.ok) {
+        // Direct Supabase fallback
+        try {
+          await supabase.from('queue_tokens').update({
+            status: 'COMPLETED',
+            next_counter: nextCounter,
+            completed_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          }).eq('id', tokenId);
+        } catch {
+          // If column not added, store in application remarks
+          const currentToken = dbQueueTokens.find((q) => q.id === tokenId);
+          if (currentToken?.applicationId) {
+            await supabase.from('applications').update({
+              remarks: `Direct to Table ${nextCounter}`,
+            }).eq('id', currentToken.applicationId);
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('[DataContext] routeToNextTable API warning:', err);
     }
   };
 
@@ -958,6 +1006,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         updateEmployeeBreakSchedule,
         callNextToken: handleCallNextToken,
         updateTokenStatus: handleUpdateTokenStatus,
+        routeToNextTable: handleRouteToNextTable,
         submitApplication: handleSubmitApplication,
         updateDocumentStatus: handleUpdateDocumentStatus,
         updateApplicationStatus: handleUpdateApplicationStatus,

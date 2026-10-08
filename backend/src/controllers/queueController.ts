@@ -230,7 +230,7 @@ export const getLiveQueue = async (
       return;
     }
 
-    const { data: token } = await supabaseAdmin
+    let { data: token } = await supabaseAdmin
       .from('queue_tokens')
       .select('*, services(id, name, code, category), offices(id, name), applications(id, remarks)')
       .eq('user_id', userId)
@@ -238,6 +238,27 @@ export const getLiveQueue = async (
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle();
+
+    // If no active WAITING/CALLED/IN_SERVICE token, check for a recently completed token with a next destination table
+    if (!token) {
+      try {
+        const { data: directedToken } = await supabaseAdmin
+          .from('queue_tokens')
+          .select('*, services(id, name, code, category), offices(id, name), applications(id, remarks)')
+          .eq('user_id', userId)
+          .eq('status', 'COMPLETED')
+          .not('next_counter', 'is', null)
+          .order('completed_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (directedToken) {
+          token = directedToken;
+        }
+      } catch {
+        // Fallback if column not present yet
+      }
+    }
 
     if (token) {
       if (!token.time_slot && token.applications?.remarks) {
@@ -494,7 +515,7 @@ export const updateTokenStatus = async (
 ): Promise<void> => {
   try {
     const { id } = req.params;
-    const { status } = req.body;
+    const { status, nextCounter } = req.body;
 
     const updates: Record<string, any> = {
       status,
@@ -505,17 +526,118 @@ export const updateTokenStatus = async (
       updates.completed_at = new Date().toISOString();
     }
 
-    const { data: token, error } = await supabaseAdmin
+    if (nextCounter) {
+      updates.next_counter = nextCounter;
+    }
+
+    let updateRes = await supabaseAdmin
       .from('queue_tokens')
       .update(updates)
       .eq('id', id)
       .select('*, services(id, name, code, category), offices(id, name), profiles:user_id(id, full_name, phone)')
       .single();
 
+    // Graceful fallback if column does not exist yet (error 42703)
+    if (updateRes.error && updateRes.error.code === '42703') {
+      delete updates.next_counter;
+      updateRes = await supabaseAdmin
+        .from('queue_tokens')
+        .update(updates)
+        .eq('id', id)
+        .select('*, services(id, name, code, category), offices(id, name), profiles:user_id(id, full_name, phone)')
+        .single();
+    }
+
+    const { data: token, error } = updateRes;
+
     if (error) {
       res.status(400).json({ success: false, error: { code: 'UPDATE_FAILED', message: error.message } });
       return;
     }
+
+    if (token && nextCounter) {
+      token.next_counter = token.next_counter || nextCounter;
+    }
+
+    res.json({ success: true, data: token } as ApiResponse);
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: err.message } });
+  }
+};
+
+export const routeNextTable = async (
+  req: AuthenticatedRequest,
+  res: Response
+): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const { nextCounter } = req.body;
+
+    if (!nextCounter) {
+      res.status(400).json({ success: false, error: { code: 'INVALID_INPUT', message: 'nextCounter is required.' } });
+      return;
+    }
+
+    const updates: Record<string, any> = {
+      status: 'COMPLETED',
+      next_counter: nextCounter,
+      completed_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    let updateRes = await supabaseAdmin
+      .from('queue_tokens')
+      .update(updates)
+      .eq('id', id)
+      .select('*, services(id, name, code, category), offices(id, name), profiles:user_id(id, full_name, phone)')
+      .single();
+
+    if (updateRes.error && updateRes.error.code === '42703') {
+      delete updates.next_counter;
+      updateRes = await supabaseAdmin
+        .from('queue_tokens')
+        .update(updates)
+        .eq('id', id)
+        .select('*, services(id, name, code, category), offices(id, name), profiles:user_id(id, full_name, phone)')
+        .single();
+    }
+
+    const { data: token, error } = updateRes;
+
+    if (error || !token) {
+      res.status(400).json({ success: false, error: { code: 'UPDATE_FAILED', message: error?.message || 'Failed to route next table.' } });
+      return;
+    }
+
+    token.next_counter = token.next_counter || nextCounter;
+
+    // Send realtime notification to citizen
+    if (token.user_id) {
+      try {
+        await supabaseAdmin.from('notifications').insert({
+          user_id: token.user_id,
+          title: `Please go to ${nextCounter}`,
+          message: `Your service at Counter ${token.counter_number || 'current table'} is complete. Please physically proceed to Table ${nextCounter}.`,
+          type: 'queue',
+          link_url: '/user/queue',
+        });
+      } catch (notifErr) {
+        console.warn('Failed to insert route notification:', notifErr);
+      }
+    }
+
+    // Audit log
+    try {
+      await supabaseAdmin.from('audit_logs').insert({
+        actor_user_id: req.user?.id,
+        actor_user_name: req.user?.fullName || 'Officer',
+        actor_user_role: req.user?.role || 'employee',
+        action: 'ROUTE_NEXT_TABLE',
+        entity_type: 'queue_token',
+        entity_id: token.id,
+        details: `Turn completed at ${token.counter_number || 'counter'}. Citizen directed to table ${nextCounter}.`,
+      });
+    } catch {}
 
     res.json({ success: true, data: token } as ApiResponse);
   } catch (err: any) {

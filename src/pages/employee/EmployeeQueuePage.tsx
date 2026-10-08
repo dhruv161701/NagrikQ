@@ -7,6 +7,8 @@ import type { Column } from '../../components/ui/Table';
 import { StatusBadge } from '../../components/ui/StatusBadge';
 import { Card } from '../../components/ui/Card';
 import { EmptyState } from '../../components/ui/EmptyState';
+import { Modal } from '../../components/ui/Modal';
+import { getCityTables, normalizeTableNumber } from '../../utils/cityTables';
 import type { QueueToken } from '../../types';
 import {
   Play,
@@ -28,11 +30,14 @@ export const EmployeeQueuePage: React.FC = () => {
     queueTokens,
     callNextToken,
     updateTokenStatus,
-    advanceTokenCounterStep,
+    routeToNextTable,
     refreshQueueTokens,
   } = useData();
 
-  const activeCounter = (currentUser as any)?.counterNumber ? `C-0${(currentUser as any).counterNumber}` : 'C-04';
+  const [activeCounter] = useState<string>('C-1');
+  const [activeRoutingToken, setActiveRoutingToken] = useState<QueueToken | null>(null);
+  const [selectedNextTable, setSelectedNextTable] = useState<string>('C-2');
+  const [isSubmittingNextTable, setIsSubmittingNextTable] = useState(false);
 
   const empStorageKey = currentUser?.id ? `nagrikq_emp_services_${currentUser.id}` : 'nagrikq_emp_services_default';
 
@@ -206,11 +211,6 @@ export const EmployeeQueuePage: React.FC = () => {
       key: 'actions',
       header: 'Actions',
       render: (row) => {
-        const path = row.counterPath || [];
-        const currentIdx = row.currentCounterIndex ?? 0;
-        const hasNextCounter = path.length > 1 && currentIdx < path.length - 1;
-        const nextCounterName = hasNextCounter ? path[currentIdx + 1].split(':')[0].trim() : '';
-
         return (
           <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
             {row.status === 'WAITING' && (
@@ -225,37 +225,38 @@ export const EmployeeQueuePage: React.FC = () => {
             )}
             {row.status === 'IN_SERVICE' && (
               <>
-                {hasNextCounter && (
-                  <Button
-                    variant="saffron"
-                    size="sm"
-                    onClick={async () => {
-                      await advanceTokenCounterStep(row.id);
-                      await handleCallNext();
-                    }}
-                    icon={<ArrowRight size={13} />}
-                    style={{ fontWeight: 700 }}
-                  >
-                    Send to {nextCounterName} →
-                  </Button>
-                )}
                 <Button
-                  variant="primary"
+                  variant="saffron"
                   size="sm"
                   onClick={async () => {
                     await updateTokenStatus(row.id, 'COMPLETED');
-                    await handleCallNext();
                   }}
                   icon={<CheckCircle size={13} />}
+                  style={{ fontWeight: 700 }}
                 >
-                  Complete & Next
+                  Complete
+                </Button>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={() => {
+                    const city = row.selectedCity || 'Rajkot';
+                    const all = getCityTables(city).filter(
+                      (t) => normalizeTableNumber(t) !== normalizeTableNumber(activeCounter)
+                    );
+                    setSelectedNextTable(all[0] || 'C-2');
+                    setActiveRoutingToken(row);
+                  }}
+                  icon={<ArrowRight size={13} />}
+                  style={{ fontWeight: 700 }}
+                >
+                  Next Table →
                 </Button>
                 <Button
                   variant="danger"
                   size="sm"
                   onClick={async () => {
                     await updateTokenStatus(row.id, 'NO_SHOW');
-                    await handleCallNext();
                   }}
                   icon={<XCircle size={13} />}
                 >
@@ -530,6 +531,123 @@ export const EmployeeQueuePage: React.FC = () => {
       ) : (
         <Table columns={columns} data={displayedTokens} keyExtractor={(row) => row.id} />
       )}
+
+      {/* MODAL: DIRECT CITIZEN TO NEXT TABLE */}
+      <Modal
+        isOpen={!!activeRoutingToken}
+        onClose={() => setActiveRoutingToken(null)}
+        title="Direct Citizen to Next Physical Table"
+        description="Select the table the citizen must physically visit next in this government office."
+        maxWidth="500px"
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          {activeRoutingToken && (
+            <div
+              style={{
+                backgroundColor: 'var(--color-primary-50)',
+                border: '1px solid var(--color-primary-100)',
+                padding: '16px',
+                borderRadius: '12px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '8px',
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '0.85rem', color: 'var(--color-neutral-600)', fontWeight: 600 }}>
+                  Citizen:
+                </span>
+                <span style={{ fontWeight: 800, color: 'var(--color-primary-950)' }}>
+                  {activeRoutingToken.citizenName} ({activeRoutingToken.tokenNumber})
+                </span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '0.85rem', color: 'var(--color-neutral-600)', fontWeight: 600 }}>
+                  Current Counter:
+                </span>
+                <span style={{ fontWeight: 700, color: 'var(--color-neutral-800)' }}>
+                  Counter {activeCounter}
+                </span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '0.85rem', color: 'var(--color-neutral-600)', fontWeight: 600 }}>
+                  City Complex:
+                </span>
+                <span style={{ fontWeight: 700, color: 'var(--color-neutral-800)' }}>
+                  {activeRoutingToken.selectedCity || 'Rajkot'}
+                </span>
+              </div>
+            </div>
+          )}
+
+          <div>
+            <label
+              style={{
+                display: 'block',
+                fontSize: '0.9rem',
+                fontWeight: 700,
+                color: 'var(--color-neutral-800)',
+                marginBottom: '8px',
+              }}
+            >
+              Select Next Table Destination
+            </label>
+            <select
+              value={selectedNextTable}
+              onChange={(e) => setSelectedNextTable(e.target.value)}
+              style={{
+                width: '100%',
+                padding: '12px 14px',
+                borderRadius: '10px',
+                border: '1px solid var(--color-neutral-300)',
+                fontSize: '1rem',
+                fontWeight: 700,
+                color: 'var(--color-primary-900)',
+                backgroundColor: 'white',
+              }}
+            >
+              {getCityTables(activeRoutingToken?.selectedCity || 'Rajkot')
+                .filter((t) => normalizeTableNumber(t) !== normalizeTableNumber(activeCounter))
+                .map((tbl) => (
+                  <option key={tbl} value={tbl}>
+                    Table {tbl}
+                  </option>
+                ))}
+            </select>
+            <p style={{ margin: '8px 0 0 0', fontSize: '0.82rem', color: 'var(--color-neutral-500)' }}>
+              Note: The officer at the next table works physically outside NagrikQ. As soon as you confirm, the citizen will be notified to proceed to Table {selectedNextTable}, and Counter {activeCounter} will immediately become free.
+            </p>
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '8px' }}>
+            <Button
+              variant="secondary"
+              onClick={() => setActiveRoutingToken(null)}
+              disabled={isSubmittingNextTable}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              onClick={async () => {
+                if (!activeRoutingToken || !selectedNextTable) return;
+                setIsSubmittingNextTable(true);
+                try {
+                  await routeToNextTable(activeRoutingToken.id, selectedNextTable);
+                  setActiveRoutingToken(null);
+                } finally {
+                  setIsSubmittingNextTable(false);
+                }
+              }}
+              disabled={isSubmittingNextTable}
+              icon={<ArrowRight size={16} />}
+              style={{ fontWeight: 800 }}
+            >
+              Confirm & Direct to {selectedNextTable}
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 };

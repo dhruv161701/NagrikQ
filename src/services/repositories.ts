@@ -250,8 +250,12 @@ export const mockRepository = {
     notify();
     return undefined;
   },
-  updateTokenStatus(tokenId: string, status: QueueToken['status']) {
-    queueState = queueState.map((q) => (q.id === tokenId ? { ...q, status } : q));
+  updateTokenStatus(tokenId: string, status: QueueToken['status'], nextCounter?: string) {
+    queueState = queueState.map((q) => (q.id === tokenId ? { ...q, status, ...(nextCounter ? { nextCounter } : {}) } : q));
+    notify();
+  },
+  routeToNextTable(tokenId: string, nextCounter: string) {
+    queueState = queueState.map((q) => (q.id === tokenId ? { ...q, status: 'COMPLETED' as const, nextCounter } : q));
     notify();
   },
 

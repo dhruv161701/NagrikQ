@@ -20,6 +20,7 @@ import {
   getOfficerQueueTokens,
   callNextToken,
   updateTokenStatus,
+  routeNextTable,
   cancelToken,
   advanceCounter,
   rebookToken,
@@ -80,6 +81,7 @@ router.get('/queue/my-tokens', authenticateToken, getMyTokens);
 router.get('/queue/tokens', authenticateToken, requireRole('employee', 'admin', 'superadmin'), getOfficerQueueTokens);
 router.post('/queue/next', authenticateToken, requireRole('employee', 'admin', 'superadmin'), callNextToken);
 router.patch('/queue/tokens/:id/status', authenticateToken, requireRole('employee', 'admin', 'superadmin'), updateTokenStatus);
+router.post('/queue/tokens/:id/next-table', authenticateToken, requireRole('employee', 'admin', 'superadmin'), routeNextTable);
 router.patch('/queue/tokens/:id/cancel', authenticateToken, cancelToken);
 router.delete('/queue/tokens/:id', authenticateToken, cancelToken);
 router.post('/queue/tokens/:id/advance-counter', authenticateToken, requireRole('employee', 'admin', 'superadmin'), advanceCounter);

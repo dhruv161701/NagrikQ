@@ -271,6 +271,7 @@ CREATE TABLE IF NOT EXISTS public.queue_tokens (
   office_id UUID REFERENCES public.offices(id) ON DELETE CASCADE,
   service_id UUID REFERENCES public.services(id) ON DELETE CASCADE,
   counter_number VARCHAR(20),
+  next_counter VARCHAR(50), -- Assigned next destination table (e.g. 'C-2', 'C-3')
   queue_date DATE DEFAULT CURRENT_DATE,
   status queue_status DEFAULT 'WAITING',
   position INT DEFAULT 1,
@@ -283,6 +284,9 @@ CREATE TABLE IF NOT EXISTS public.queue_tokens (
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Idempotent column addition for existing deployments:
+ALTER TABLE public.queue_tokens ADD COLUMN IF NOT EXISTS next_counter VARCHAR(50);
 
 -- 13. APPOINTMENTS TABLE
 CREATE TABLE IF NOT EXISTS public.appointments (
