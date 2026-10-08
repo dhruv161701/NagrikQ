@@ -1,0 +1,233 @@
+{
+  "name": "NagrikQ IDP Telegram Notification Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "idp-created",
+        "options": {
+          "rawBody": false
+        }
+      },
+      "id": "node-webhook-trigger",
+      "name": "IDP Created Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        250,
+        300
+      ],
+      "webhookId": "nagrikq-idp-created-webhook"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.headers['x-webhook-secret'] }}",
+              "value2": "nagrikq_idp_secret_key_2026"
+            }
+          ]
+        }
+      },
+      "id": "node-auth-check",
+      "name": "Validate Webhook Secret",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        480,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.item.json.body || $input.item.json;\nif (!body.eventId || !body.application) {\n  throw new Error('Invalid IDP event payload: eventId and application object required.');\n}\nreturn {\n  eventId: body.eventId,\n  applicationId: body.application.id,\n  applicationNumber: body.application.applicationNumber,\n  serviceName: body.application.serviceName || 'International Driving Permit (IDP)',\n  status: body.application.status || 'SUBMITTED',\n  userId: body.application.userId,\n  phone: body.application.phone || '',\n  submittedAt: body.application.submittedAt || new Date().toISOString(),\n  recipientTelegramChatId: body.recipientTelegramChatId || null,\n  timestamp: body.timestamp || new Date().toISOString()\n};"
+      },
+      "id": "node-input-validation",
+      "name": "Validate & Extract Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [
+        700,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ Boolean($json.recipientTelegramChatId) }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "node-chat-id-check",
+      "name": "Has Linked Telegram Chat ID?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        920,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "requestMethod": "POST",
+        "url": "=https://api.telegram.org/bot8874803375:AAHHnLDMGA2tXkfIeMICfVoH9kSTf1EO1bI/sendMessage",
+        "options": {},
+        "bodyParametersUi": {
+          "parameter": [
+            {
+              "name": "chat_id",
+              "value": "={{ $json.recipientTelegramChatId }}"
+            },
+            {
+              "name": "parse_mode",
+              "value": "Markdown"
+            },
+            {
+              "name": "text",
+              "value": "=🔔 *NagrikQ IDP Creation Notification*\\n\\nYour application has been created successfully!\\n\\n• *Application No*: `{{ $json.applicationNumber }}`\\n• *Service*: {{ $json.serviceName }}\\n• *Status*: `{{ $json.status }}`\\n• *Date*: {{ $json.submittedAt.split('T')[0] }}\\n\\n🔗 *View Application Details:*\\nhttp://localhost:5173/user/applications"
+            }
+          ]
+        }
+      },
+      "id": "node-telegram-send",
+      "name": "Send Telegram Notification",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [
+        1150,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "options": {},
+        "respondWith": "json",
+        "responseBody": "={\n  \"success\": true,\n  \"delivered\": true,\n  \"eventId\": \"{{ $('Validate & Extract Payload').item.json.eventId }}\",\n  \"chatId\": \"{{ $('Validate & Extract Payload').item.json.recipientTelegramChatId }}\",\n  \"message\": \"Telegram notification sent successfully.\"\n}"
+      },
+      "id": "node-respond-success",
+      "name": "Respond Webhook Success",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        1380,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "options": {},
+        "respondWith": "json",
+        "responseBody": "={\n  \"success\": false,\n  \"delivered\": false,\n  \"eventId\": \"{{ $('Validate & Extract Payload').item.json.eventId }}\",\n  \"reason\": \"Recipient has not linked a Telegram account yet.\"\n}"
+      },
+      "id": "node-respond-no-chat",
+      "name": "Respond Unlinked Recipient",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        1150,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "options": {},
+        "respondWith": "json",
+        "responseCode": 401,
+        "responseBody": "={\n  \"success\": false,\n  \"error\": \"Unauthorized: Invalid or missing x-webhook-secret header.\"\n}"
+      },
+      "id": "node-respond-unauthorized",
+      "name": "Respond Unauthorized",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        700,
+        480
+      ]
+    }
+  ],
+  "connections": {
+    "IDP Created Webhook": {
+      "main": [
+        [
+          {
+            "node": "Validate Webhook Secret",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Webhook Secret": {
+      "main": [
+        [
+          {
+            "node": "Validate & Extract Payload",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Unauthorized",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate & Extract Payload": {
+      "main": [
+        [
+          {
+            "node": "Has Linked Telegram Chat ID?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Linked Telegram Chat ID?": {
+      "main": [
+        [
+          {
+            "node": "Send Telegram Notification",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Unlinked Recipient",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Telegram Notification": {
+      "main": [
+        [
+          {
+            "node": "Respond Webhook Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": [
+    "NagrikQ",
+    "Telegram",
+    "IDP"
+  ]
+}
