@@ -391,4 +391,112 @@ export const isSlotInPastForToday = (slot: string): boolean => {
   }
 };
 
+export const timeStringToMinutes = (timeStr: string): number => {
+  if (!timeStr) return 0;
+  const match = timeStr.trim().match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?$/i);
+  if (!match) return 0;
+  let h = parseInt(match[1], 10);
+  const m = parseInt(match[2], 10);
+  const meridiem = match[3]?.toUpperCase();
+  if (meridiem === 'PM' && h < 12) h += 12;
+  if (meridiem === 'AM' && h === 12) h = 0;
+  return h * 60 + m;
+};
+
+export const minutesToTimeString = (mins: number): string => {
+  let h = Math.floor(mins / 60);
+  const m = mins % 60;
+  const meridiem = h >= 12 ? 'PM' : 'AM';
+  if (h > 12) h -= 12;
+  if (h === 0) h = 12;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')} ${meridiem}`;
+};
+
+export interface SlotInfo {
+  slot: string;
+  startMinutes: number;
+  endMinutes: number;
+  isBreak: boolean;
+  breakReason?: string;
+}
+
+export const generateServiceSlots = (service?: {
+  startTime?: string;
+  endTime?: string;
+  slotDurationMinutes?: number;
+  enableBreakTime?: boolean;
+  breakStartTime?: string;
+  breakEndTime?: string;
+}): SlotInfo[] => {
+  const startMins = timeStringToMinutes(service?.startTime || '09:30 AM');
+  const endMins = timeStringToMinutes(service?.endTime || '05:00 PM');
+  const duration = service?.slotDurationMinutes || 30;
+
+  const breakStart = service?.enableBreakTime !== false ? timeStringToMinutes(service?.breakStartTime || '01:00 PM') : -1;
+  const breakEnd = service?.enableBreakTime !== false ? timeStringToMinutes(service?.breakEndTime || '02:00 PM') : -1;
+
+  const slots: SlotInfo[] = [];
+  let curr = startMins;
+
+  while (curr + duration <= endMins) {
+    const slotStartMins = curr;
+    const slotEndMins = curr + duration;
+
+    const isOverlappingBreak =
+      breakStart >= 0 && breakEnd > breakStart && slotStartMins < breakEnd && slotEndMins > breakStart;
+
+    const slotStr = `${minutesToTimeString(slotStartMins)} - ${minutesToTimeString(slotEndMins)}`;
+    slots.push({
+      slot: slotStr,
+      startMinutes: slotStartMins,
+      endMinutes: slotEndMins,
+      isBreak: isOverlappingBreak,
+      breakReason: isOverlappingBreak ? 'Scheduled Break Time' : undefined,
+    });
+
+    curr += duration;
+  }
+
+  return slots.length > 0
+    ? slots
+    : FIXED_30_MIN_SLOTS.map((s) => ({
+        slot: s,
+        startMinutes: timeStringToMinutes(s.split('-')[0]),
+        endMinutes: timeStringToMinutes(s.split('-')[1]),
+        isBreak: false,
+      }));
+};
+
+/**
+ * Enforces booking rules:
+ * 1. Date cannot be in past.
+ * 2. If date is today, slot must start at least minAdvanceMinutes (default 30 mins) in advance from current time.
+ */
+export const isSlotValidForBooking = (
+  slot: string,
+  slotDate?: string,
+  minAdvanceMinutes: number = 30
+): boolean => {
+  try {
+    const todayStr = new Date().toISOString().split('T')[0];
+    const targetDateStr = slotDate || todayStr;
+
+    if (targetDateStr < todayStr) return false;
+    if (targetDateStr > todayStr) return true; // Future dates are valid for booking
+
+    const parts = slot.split('-');
+    if (parts.length < 1) return false;
+    const startPart = parts[0].trim();
+    const slotStartMins = timeStringToMinutes(startPart);
+
+    const now = new Date();
+    const currentMins = now.getHours() * 60 + now.getMinutes();
+
+    return slotStartMins >= currentMins + minAdvanceMinutes;
+  } catch {
+    return false;
+  }
+};
+
+
 

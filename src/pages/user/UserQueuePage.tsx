@@ -40,7 +40,8 @@ import {
   SERVICE_DOCUMENT_VALIDITY,
   DEFAULT_COUNTER_SEQUENCES,
   getAvailableBookingDates,
-  isSlotInPastForToday,
+  generateServiceSlots,
+  isSlotValidForBooking,
 } from '../../data/indianLocations';
 import type { QueueToken } from '../../types';
 
@@ -169,23 +170,6 @@ export const UserQueuePage: React.FC = () => {
   // Booking Date Restrictions: Strictly Today & Tomorrow only
   const bookingDateOptions = useMemo(() => getAvailableBookingDates(), []);
 
-  // Compute available slots: For Today, strictly exclude past time slots. Tomorrow shows all slots.
-  const availableSlotsForDate = useMemo(() => {
-    const todayStr = new Date().toISOString().split('T')[0];
-    const isToday = selectedSlotDate === todayStr;
-    if (isToday) {
-      return FIXED_30_MIN_SLOTS.filter((s) => !isSlotInPastForToday(s));
-    }
-    return FIXED_30_MIN_SLOTS;
-  }, [selectedSlotDate]);
-
-  // Keep selectedTimeSlot valid when date switches or on mount
-  useEffect(() => {
-    if (availableSlotsForDate.length > 0 && !availableSlotsForDate.includes(selectedTimeSlot)) {
-      setSelectedTimeSlot(availableSlotsForDate[0]);
-    }
-  }, [availableSlotsForDate, selectedTimeSlot]);
-
   // Rebooking Expired Token State
   const [isRebookModalOpen, setIsRebookModalOpen] = useState(false);
   const [rebookTimeSlot, setRebookTimeSlot] = useState<string>('');
@@ -311,13 +295,43 @@ export const UserQueuePage: React.FC = () => {
     );
   }, [availableServices, selectedServiceId, services]);
 
-  // Slot capacity based on service processing length
+  // Slot capacity formula: online_booking_capacity = floor(floor(slotDuration / avgProcessingTime) / 2)
   const slotCapacity = useMemo(() => {
-    if (!targetService) return 6;
+    if (!targetService) return 3;
     if (targetService.slotCapacity) return targetService.slotCapacity;
-    const days = targetService.processingTimeDays || 7;
-    return Math.max(2, Math.floor(30 / (days > 10 ? 10 : 5)));
+    const duration = targetService.slotDurationMinutes || 30;
+    const procTime = targetService.avgProcessingTimeMinutes || 5;
+    const citizensPerSlot = Math.floor(duration / procTime);
+    return Math.max(1, Math.floor(citizensPerSlot / 2));
   }, [targetService]);
+
+  // Compute available slots: Enforce 30-minute advance booking window & filter out break slots
+  const availableSlotsForDate = useMemo(() => {
+    const rawSlots = generateServiceSlots(targetService);
+    return rawSlots
+      .filter((slotObj) => {
+        if (slotObj.isBreak) return false;
+        return isSlotValidForBooking(slotObj.slot, selectedSlotDate, 30);
+      })
+      .map((s) => s.slot);
+  }, [selectedSlotDate, targetService]);
+
+  // Check if booking is stopped for selected service on selected date
+  const isBookingStoppedForDate = useMemo(() => {
+    if (!targetService) return false;
+    if (targetService.isBookingStopped) return true;
+    if (targetService.stoppedBookingDates && targetService.stoppedBookingDates.includes(selectedSlotDate)) {
+      return true;
+    }
+    return false;
+  }, [targetService, selectedSlotDate]);
+
+  // Keep selectedTimeSlot valid when date switches or on mount
+  useEffect(() => {
+    if (availableSlotsForDate.length > 0 && !availableSlotsForDate.includes(selectedTimeSlot)) {
+      setSelectedTimeSlot(availableSlotsForDate[0]);
+    }
+  }, [availableSlotsForDate, selectedTimeSlot]);
 
   // Dynamically configured required documents for the selected service
   const jurisdictionDocs = useMemo(() => {
@@ -1379,8 +1393,25 @@ export const UserQueuePage: React.FC = () => {
               })}
             </div>
 
-            {/* SLOTS GRID */}
-            {availableSlotsForDate.length === 0 ? (
+            {/* SLOTS GRID OR BOOKING PAUSED BANNER */}
+            {isBookingStoppedForDate ? (
+              <div
+                style={{
+                  padding: '16px',
+                  backgroundColor: 'var(--color-warning-50)',
+                  border: '1.5px solid var(--color-warning-400)',
+                  borderRadius: '10px',
+                  color: 'var(--color-warning-950)',
+                  fontSize: '0.88rem',
+                  lineHeight: '1.5',
+                }}
+              >
+                ⚠️ <strong>Online Token Booking Temporarily Paused</strong>
+                <p style={{ margin: '6px 0 0 0', fontSize: '0.82rem', color: 'var(--color-warning-900)' }}>
+                  Online token booking for <strong>{targetService?.name}</strong> has been paused for <strong>{selectedSlotDate}</strong> by office administration due to heavy physical counter load. Please visit the offline counter directly for walk-in token issuance.
+                </p>
+              </div>
+            ) : availableSlotsForDate.length === 0 ? (
               <div
                 style={{
                   padding: '16px',

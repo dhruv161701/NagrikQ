@@ -5,6 +5,7 @@ import { supabase } from '../../config/supabase';
 import { Card } from '../../components/ui/Card';
 import { Input } from '../../components/ui/Input';
 import { Button } from '../../components/ui/Button';
+import { Modal } from '../../components/ui/Modal';
 import {
   ArrowRight,
   AlertCircle,
@@ -14,6 +15,7 @@ import {
   Lock,
   Building,
   KeyRound,
+  CheckCircle2,
 } from 'lucide-react';
 
 type StaffRole = 'employee' | 'admin' | 'superadmin';
@@ -35,6 +37,38 @@ export const StaffLoginPage: React.FC = () => {
   const [password, setPassword] = useState<string>('');
   const [error, setError] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+
+  // Forgot Password Modal state
+  const [isForgotModalOpen, setIsForgotModalOpen] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState('');
+  const [forgotSubmitting, setForgotSubmitting] = useState(false);
+  const [resetSuccessMsg, setResetSuccessMsg] = useState('');
+  const [resetErrorMsg, setResetErrorMsg] = useState('');
+
+  const handleSendResetEmail = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setResetErrorMsg('');
+    setResetSuccessMsg('');
+    if (!forgotEmail || !forgotEmail.includes('@')) {
+      setResetErrorMsg('Please enter a valid official email address.');
+      return;
+    }
+    setForgotSubmitting(true);
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(forgotEmail, {
+        redirectTo: `${window.location.origin}/reset-password`,
+      });
+      if (error) {
+        setResetErrorMsg(error.message);
+      } else {
+        setResetSuccessMsg(`Password reset link sent to ${forgotEmail}. Please check your official inbox.`);
+      }
+    } catch (err: any) {
+      setResetErrorMsg(err.message || 'Failed to send reset link.');
+    } finally {
+      setForgotSubmitting(false);
+    }
+  };
 
   // Sync tab if query param changes
   useEffect(() => {
@@ -363,9 +397,23 @@ export const StaffLoginPage: React.FC = () => {
             </div>
 
             <div>
-              <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: 'var(--color-neutral-700)', marginBottom: '6px' }}>
-                Password
-              </label>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--color-neutral-700)' }}>
+                  Password
+                </label>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setForgotEmail(email);
+                    setResetSuccessMsg('');
+                    setResetErrorMsg('');
+                    setIsForgotModalOpen(true);
+                  }}
+                  style={{ background: 'none', border: 'none', color: 'var(--color-primary-700)', fontWeight: 600, fontSize: '0.82rem', cursor: 'pointer', padding: 0 }}
+                >
+                  Forgot password?
+                </button>
+              </div>
               <Input
                 type="password"
                 placeholder="••••••••"
@@ -391,6 +439,54 @@ export const StaffLoginPage: React.FC = () => {
           </form>
         </Card>
       </div>
+
+      {/* Staff Forgot Password Modal */}
+      <Modal
+        isOpen={isForgotModalOpen}
+        onClose={() => setIsForgotModalOpen(false)}
+        title={`Reset Password — ${activeRole === 'employee' ? 'Officer' : activeRole === 'admin' ? 'Office Admin' : 'Super Admin'}`}
+        maxWidth="500px"
+      >
+        <form onSubmit={handleSendResetEmail} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <p style={{ fontSize: '0.88rem', color: 'var(--color-neutral-600)', margin: 0, lineHeight: 1.5 }}>
+            Enter your official government email address below. We will send a secure verification link to reset your password.
+          </p>
+
+          {resetSuccessMsg && (
+            <div style={{ padding: '12px', borderRadius: '8px', backgroundColor: 'var(--color-success-50)', color: 'var(--color-success-900)', border: '1px solid var(--color-success-300)', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <CheckCircle2 size={18} /> {resetSuccessMsg}
+            </div>
+          )}
+
+          {resetErrorMsg && (
+            <div style={{ padding: '12px', borderRadius: '8px', backgroundColor: 'var(--color-danger-50)', color: 'var(--color-danger-900)', border: '1px solid var(--color-danger-300)', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <AlertCircle size={18} /> {resetErrorMsg}
+            </div>
+          )}
+
+          <div>
+            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: 'var(--color-neutral-700)', marginBottom: '6px' }}>
+              Official Government Email
+            </label>
+            <Input
+              type="email"
+              placeholder="officer@nagrikq.org"
+              value={forgotEmail}
+              onChange={(e) => setForgotEmail(e.target.value)}
+              required
+            />
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '6px' }}>
+            <Button type="button" variant="outline" onClick={() => setIsForgotModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" variant="saffron" disabled={forgotSubmitting}>
+              {forgotSubmitting ? 'Sending...' : 'Send Reset Link'}
+            </Button>
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 };

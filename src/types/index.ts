@@ -49,6 +49,15 @@ export interface Service {
   slotCapacity?: number;
   counterPath?: string[];
   documentValidity?: string;
+  startTime?: string;
+  endTime?: string;
+  slotDurationMinutes?: number;
+  avgProcessingTimeMinutes?: number;
+  enableBreakTime?: boolean;
+  breakStartTime?: string;
+  breakEndTime?: string;
+  stoppedBookingDates?: string[];
+  isBookingStopped?: boolean;
 }
 
 export interface Department {

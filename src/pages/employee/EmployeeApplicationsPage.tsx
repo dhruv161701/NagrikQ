@@ -641,15 +641,34 @@ export const EmployeeApplicationsPage: React.FC = () => {
 
                   {/* Check Physical Docs Action Button */}
                   <div>
-                    <Button
-                      variant="saffron"
-                      size="sm"
-                      onClick={() => handleOpenDocsModal(app)}
-                      icon={<FileText size={15} />}
-                      style={{ fontWeight: 700, padding: '8px 18px' }}
-                    >
-                      Check Physical Docs
-                    </Button>
+                    {app.status === 'APPROVED' || app.status === 'REJECTED' || app.status === 'COMPLETED' ? (
+                      <span
+                        style={{
+                          fontSize: '12px',
+                          fontWeight: 700,
+                          color: 'var(--color-success-800)',
+                          backgroundColor: 'var(--color-success-50)',
+                          padding: '6px 14px',
+                          borderRadius: '6px',
+                          border: '1px solid var(--color-success-300)',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                        }}
+                      >
+                        ✓ Processing Complete
+                      </span>
+                    ) : (
+                      <Button
+                        variant="saffron"
+                        size="sm"
+                        onClick={() => handleOpenDocsModal(app)}
+                        icon={<FileText size={15} />}
+                        style={{ fontWeight: 700, padding: '8px 18px' }}
+                      >
+                        Check Physical Docs
+                      </Button>
+                    )}
                   </div>
                 </div>
               );

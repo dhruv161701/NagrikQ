@@ -659,19 +659,33 @@ export const cancelToken = async (
       return;
     }
 
-    // Verify token ownership if citizen
-    if (userRole === 'citizen') {
-      const { data: existing } = await supabaseAdmin
-        .from('queue_tokens')
-        .select('id, user_id')
-        .eq('id', id)
-        .eq('user_id', userId)
-        .maybeSingle();
+    // Verify token status and ownership
+    const { data: existing } = await supabaseAdmin
+      .from('queue_tokens')
+      .select('id, user_id, status')
+      .eq('id', id)
+      .maybeSingle();
 
-      if (!existing) {
-        res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'You can only cancel your own token.' } });
-        return;
-      }
+    if (!existing) {
+      res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Token not found.' } });
+      return;
+    }
+
+    if (userRole === 'citizen' && existing.user_id !== userId) {
+      res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'You can only cancel your own token.' } });
+      return;
+    }
+
+    // Business Rule: Tokens cannot be cancelled once an employee has called the token
+    if (existing.status !== 'WAITING') {
+      res.status(400).json({
+        success: false,
+        error: {
+          code: 'CANNOT_CANCEL_CALLED_TOKEN',
+          message: 'Tokens cannot be cancelled once an employee has called your token or processing has started.',
+        },
+      });
+      return;
     }
 
     const { data: token, error } = await supabaseAdmin

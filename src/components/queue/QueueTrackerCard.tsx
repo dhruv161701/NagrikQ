@@ -123,6 +123,11 @@ export const QueueTrackerCard: React.FC<QueueTrackerCardProps> = ({ token, onCan
             Cancel Token
           </Button>
         )}
+        {token.status !== 'WAITING' && token.status !== 'COMPLETED' && token.status !== 'CANCELLED' && (
+          <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--color-warning-800)', backgroundColor: 'var(--color-warning-50)', padding: '6px 12px', borderRadius: '6px', border: '1px solid var(--color-warning-300)' }}>
+            🔒 Token Called by Officer (Cannot Cancel)
+          </span>
+        )}
       </div>
     </div>
   );

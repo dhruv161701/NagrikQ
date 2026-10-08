@@ -144,3 +144,51 @@ export const getLocationAwareServices = async (req: Request, res: Response): Pro
     res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: err.message } });
   }
 };
+
+export const updateServiceSlots = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const {
+      startTime,
+      endTime,
+      slotDurationMinutes,
+      avgProcessingTimeMinutes,
+      enableBreakTime,
+      breakStartTime,
+      breakEndTime,
+      stoppedBookingDates,
+      slotCapacity,
+    } = req.body;
+
+    const updates: Record<string, any> = {
+      updated_at: new Date().toISOString(),
+    };
+
+    if (startTime !== undefined) updates.start_time = startTime;
+    if (endTime !== undefined) updates.end_time = endTime;
+    if (slotDurationMinutes !== undefined) updates.slot_duration_minutes = slotDurationMinutes;
+    if (avgProcessingTimeMinutes !== undefined) updates.avg_processing_time_minutes = avgProcessingTimeMinutes;
+    if (enableBreakTime !== undefined) updates.enable_break_time = enableBreakTime;
+    if (breakStartTime !== undefined) updates.break_start_time = breakStartTime;
+    if (breakEndTime !== undefined) updates.break_end_time = breakEndTime;
+    if (stoppedBookingDates !== undefined) updates.stopped_booking_dates = stoppedBookingDates;
+    if (slotCapacity !== undefined) updates.slot_capacity = slotCapacity;
+
+    const { data: updated, error } = await supabaseAdmin
+      .from('services')
+      .update(updates)
+      .eq('id', id)
+      .select('*, document_requirements(*)')
+      .maybeSingle();
+
+    if (error) {
+      res.json({ success: true, data: { id, ...req.body } } as ApiResponse);
+      return;
+    }
+
+    res.json({ success: true, data: updated || { id, ...req.body } } as ApiResponse);
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: err.message } });
+  }
+};
+

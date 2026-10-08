@@ -6,6 +6,7 @@ import {
   getServiceById,
   getOffices,
   getLocationAwareServices,
+  updateServiceSlots,
 } from '../controllers/serviceController';
 import {
   createApplication,
@@ -125,6 +126,7 @@ router.get('/admin/employees', authenticateToken, requireRole('admin', 'superadm
 router.patch('/admin/employees/:id', authenticateToken, requireRole('admin', 'superadmin'), updateEmployeeUser);
 router.delete('/admin/employees/:id', authenticateToken, requireRole('admin', 'superadmin'), deleteEmployeeUser);
 router.post('/admin/office/setup', authenticateToken, requireRole('admin', 'superadmin'), setupOfficeConfig);
+router.patch('/services/:id/slots', authenticateToken, requireRole('admin', 'superadmin'), updateServiceSlots);
 router.post('/change-requests', authenticateToken, requireRole('admin', 'superadmin'), createChangeRequest);
 router.get('/change-requests', authenticateToken, requireRole('admin', 'superadmin'), getChangeRequests);
 router.get('/audit-logs', authenticateToken, requireRole('admin', 'superadmin'), getAuditLogs);

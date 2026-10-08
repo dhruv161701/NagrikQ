@@ -753,18 +753,9 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // CANCEL QUEUE TOKEN
   const handleCancelQueueToken = async (tokenId: string): Promise<boolean> => {
-    mockRepository.updateTokenStatus(tokenId, 'CANCELLED');
-    setDbQueueTokens((prev) =>
-      prev.map((q) => (q.id === tokenId ? { ...q, status: 'CANCELLED' as const } : q))
-    );
-
-    try {
-      await supabase
-        .from('queue_tokens')
-        .update({ status: 'CANCELLED', updated_at: new Date().toISOString() })
-        .eq('id', tokenId);
-    } catch (e) {
-      console.warn('Direct Supabase cancel error:', e);
+    const existing = dbQueueTokens.find((q) => q.id === tokenId);
+    if (existing && existing.status !== 'WAITING') {
+      throw new Error('Tokens cannot be cancelled once an employee has called your token or processing has started.');
     }
 
     try {
@@ -778,10 +769,33 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           Authorization: `Bearer ${token}`,
         },
       });
-      return res.ok;
-    } catch (err) {
+
+      if (!res.ok) {
+        const json = await res.json().catch(() => null);
+        throw new Error(json?.error?.message || 'Failed to cancel token.');
+      }
+
+      mockRepository.updateTokenStatus(tokenId, 'CANCELLED');
+      setDbQueueTokens((prev) =>
+        prev.map((q) => (q.id === tokenId ? { ...q, status: 'CANCELLED' as const } : q))
+      );
+      return true;
+    } catch (err: any) {
       console.warn('[DataContext] Cancel token API warning:', err);
-      return false;
+      // Direct Supabase fallback update if API route fails
+      if (existing && existing.status === 'WAITING') {
+        await supabase
+          .from('queue_tokens')
+          .update({ status: 'CANCELLED', updated_at: new Date().toISOString() })
+          .eq('id', tokenId);
+
+        mockRepository.updateTokenStatus(tokenId, 'CANCELLED');
+        setDbQueueTokens((prev) =>
+          prev.map((q) => (q.id === tokenId ? { ...q, status: 'CANCELLED' as const } : q))
+        );
+        return true;
+      }
+      throw err;
     }
   };
 
