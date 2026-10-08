@@ -4,6 +4,7 @@ import dotenv from 'dotenv';
 import apiRoutes from './routes/apiRoutes';
 import { errorHandler } from './middleware/errorHandler';
 import { ensureSuperAdminExists } from './services/bootstrapService';
+import { startTelegramPolling } from './services/telegramBotService';
 
 dotenv.config();
 
@@ -51,5 +52,7 @@ app.listen(PORT, async () => {
   console.log(`🚀 NagrikQ Backend API running on http://localhost:${PORT}`);
   // Automatically ensure Super Admin account exists in Supabase Auth & Profiles
   await ensureSuperAdminExists();
+  // Start Telegram bot polling loop
+  startTelegramPolling();
 });
 

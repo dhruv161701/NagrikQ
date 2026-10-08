@@ -61,6 +61,13 @@ import {
   deleteFromCloudinary,
 } from '../controllers/uploadController';
 import { askRagQuestion } from '../controllers/aiController';
+import {
+  handleTelegramWebhook,
+  linkTelegramAccount,
+  sendIdpNotification,
+  getTelegramMappings,
+  getTelegramStatus,
+} from '../controllers/telegramController';
 
 const router = Router();
 
@@ -69,6 +76,13 @@ router.get('/services', getServices);
 router.get('/services/location-aware', getLocationAwareServices);
 router.get('/services/:id', getServiceById);
 router.get('/offices', getOffices);
+
+// TELEGRAM BOT ROUTES
+router.post('/telegram/webhook', handleTelegramWebhook);
+router.get('/telegram/status', getTelegramStatus);
+router.post('/telegram/notify-idp', sendIdpNotification);
+router.post('/telegram/link', authenticateToken, linkTelegramAccount);
+router.get('/telegram/mappings', authenticateToken, requireRole('admin', 'superadmin'), getTelegramMappings);
 
 // AUTHENTICATED PROFILE ROUTES
 router.get('/profile', authenticateToken, getProfile);

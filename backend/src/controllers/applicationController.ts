@@ -1,6 +1,7 @@
 import { Response } from 'express';
 import { AuthenticatedRequest, ApiResponse } from '../types';
 import { supabaseAdmin } from '../config/supabase';
+import { triggerIdpCreatedWebhook } from '../services/n8nService';
 
 export const createApplication = async (
   req: AuthenticatedRequest,
@@ -87,10 +88,28 @@ export const createApplication = async (
     await supabaseAdmin.from('notifications').insert({
       user_id: userId,
       title: 'Application Submitted',
-      message: `Your application ${applicationNumber} for ${serviceName || 'Service'} has been submitted.`,
+      message: `Your application ${applicationNumber} for ${serviceName || app.services?.name || 'Service'} has been submitted.`,
       type: 'application',
       link_url: '/user/applications',
     });
+
+    // Dispatch n8n Webhook for Automatic IDP Notification (Asynchronously)
+    const eventId = `evt_idp_${app.id}_${Date.now()}`;
+    triggerIdpCreatedWebhook({
+      eventId,
+      eventType: 'IDP_CREATED',
+      timestamp: new Date().toISOString(),
+      application: {
+        id: app.id,
+        applicationNumber: app.application_number,
+        userId: app.user_id,
+        serviceName: app.services?.name || serviceName || 'International Driving Permit (IDP)',
+        serviceCode: app.services?.code || 'SRV-IDP-001',
+        status: app.status,
+        phone: (app.profiles as any)?.phone || '',
+        submittedAt: app.submitted_at || new Date().toISOString(),
+      },
+    }).catch((err) => console.warn('[IDP_WEBHOOK_BACKGROUND_WARN]', err));
 
     res.status(201).json({ success: true, data: app } as ApiResponse);
   } catch (err: any) {
