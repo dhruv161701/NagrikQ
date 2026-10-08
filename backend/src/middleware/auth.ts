@@ -34,13 +34,46 @@ export const authenticateToken = async (
       .from('profiles')
       .select('*')
       .eq('id', data.user.id)
-      .single();
+      .maybeSingle();
+
+    let resolvedRole: UserRole = (profile?.role as UserRole) || (data.user.user_metadata?.role as UserRole);
+
+    // If role is still citizen, check staff_profiles
+    if (!resolvedRole || resolvedRole === 'citizen') {
+      try {
+        const { data: staff } = await supabaseAdmin
+          .from('staff_profiles')
+          .select('role')
+          .eq('id', data.user.id)
+          .maybeSingle();
+
+        if (staff?.role) {
+          resolvedRole = staff.role as UserRole;
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    // Email fallback for administrative accounts
+    if (!resolvedRole || resolvedRole === 'citizen') {
+      const userEmail = (data.user.email || '').toLowerCase();
+      if (userEmail.includes('superadmin') || userEmail === 'superadmin@nagrikq.gov.in') {
+        resolvedRole = 'superadmin';
+      } else if (userEmail.includes('admin') || userEmail === 'admin@nagrikq.gov.in') {
+        resolvedRole = 'admin';
+      } else if (userEmail.includes('employee') || userEmail.includes('officer')) {
+        resolvedRole = 'employee';
+      } else {
+        resolvedRole = 'citizen';
+      }
+    }
 
     req.user = {
       id: data.user.id,
       email: data.user.email || '',
       fullName: profile?.full_name || data.user.user_metadata?.full_name || 'Nagrik User',
-      role: (profile?.role as UserRole) || 'citizen',
+      role: resolvedRole,
       onboardingCompleted: profile?.onboarding_completed ?? true,
     };
 

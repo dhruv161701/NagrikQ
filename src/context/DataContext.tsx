@@ -275,7 +275,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       const { data, error } = await supabase
         .from('applications')
-        .select('*, services(id, name, code, category), offices(id, name), profiles:user_id(id, full_name, email, phone), documents(*)')
+        .select('*, services(id, name, code, category), offices(id, name), documents(*)')
         .order('submitted_at', { ascending: false });
 
       if (!error && data && data.length > 0) {
@@ -286,7 +286,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, []);
 
-  // 3. Fetch Queue Tokens (Protected - officer queue requires employee/admin/superadmin role, citizen direct query)
+  // 3. Fetch Queue Tokens (Protected - officer queue requires employee/admin/superadmin role, citizen uses /api/queue/my-tokens)
   const fetchQueueTokensFromAPI = useCallback(async (forcedRole?: string) => {
     try {
       const { data: sessionData } = await supabase.auth.getSession();
@@ -296,12 +296,35 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return;
       }
 
-      const role = forcedRole || currentUser?.role;
-      // If citizen, read via Supabase direct query
-      if (role && !['employee', 'admin', 'superadmin'].includes(role)) {
+      const role = forcedRole || currentUser?.role || 'citizen';
+      const isStaff = ['employee', 'admin', 'superadmin'].includes(role);
+
+      // If citizen (or pending role resolution), fetch tokens via backend endpoint /api/queue/my-tokens (uses supabaseAdmin)
+      if (!isStaff) {
+        try {
+          const res = await fetch('/api/queue/my-tokens', {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (res.ok) {
+            const json = await res.json();
+            if (json.success && Array.isArray(json.data)) {
+              if (json.data.length > 0) {
+                setDbQueueTokens(json.data.map(mapDBTokenToQueueToken));
+              } else {
+                setDbQueueTokens((prev) => (prev.length > 0 ? prev : []));
+              }
+              setIsQueueTokensLoaded(true);
+              return;
+            }
+          }
+        } catch (apiErr) {
+          console.warn('[DataContext] Failed /api/queue/my-tokens, falling back to direct query:', apiErr);
+        }
+
+        // Direct Supabase query fallback (WITHOUT profiles:user_id join to eliminate 42P17 recursion)
         let query = supabase
           .from('queue_tokens')
-          .select('*, services(id, name, code, category), offices(id, name), applications(id, remarks), profiles:user_id(id, full_name, phone)')
+          .select('*, services(id, name, code, category), offices(id, name), applications(id, remarks)')
           .order('created_at', { ascending: false });
 
         if (currentUser?.id) {
@@ -310,10 +333,13 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         const { data, error } = await query;
 
-        if (!error && Array.isArray(data) && data.length > 0) {
-          setDbQueueTokens(data.map(mapDBTokenToQueueToken));
-        } else {
-          setDbQueueTokens([]);
+        if (!error && Array.isArray(data)) {
+          if (data.length > 0) {
+            setDbQueueTokens(data.map(mapDBTokenToQueueToken));
+          }
+        } else if (error) {
+          console.warn('[DataContext] Direct queue_tokens query warning:', error);
+          // Never wipe setDbQueueTokens([]) on query error!
         }
         setIsQueueTokensLoaded(true);
         return;
@@ -335,7 +361,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       const { data, error } = await supabase
         .from('queue_tokens')
-        .select('*, services(id, name, code, category), offices(id, name), applications(id, remarks), profiles:user_id(id, full_name, phone)')
+        .select('*, services(id, name, code, category), offices(id, name), applications(id, remarks)')
         .order('created_at', { ascending: false });
 
       if (!error && data) {
@@ -601,9 +627,16 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           fetchApplicationsFromAPI();
           return mapped;
         }
+      } else {
+        const errJson = await res.json().catch(() => null);
+        setDbQueueTokens((prev) => prev.filter((q) => q.id !== localToken.id));
+        const errorMessage = errJson?.error?.message || 'Failed to issue queue token.';
+        throw new Error(errorMessage);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.warn('[DataContext] Queue token API sync warning:', err);
+      setDbQueueTokens((prev) => prev.filter((q) => q.id !== localToken.id));
+      throw err;
     }
     return localToken;
   };

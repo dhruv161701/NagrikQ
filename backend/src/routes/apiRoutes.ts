@@ -15,6 +15,7 @@ import {
 } from '../controllers/applicationController';
 import {
   generateToken,
+  getMyTokens,
   getLiveQueue,
   getOfficerQueueTokens,
   callNextToken,
@@ -75,6 +76,7 @@ router.patch('/applications/documents/:docId/status', authenticateToken, require
 
 router.post('/queue/token', authenticateToken, generateToken);
 router.get('/queue/live', authenticateToken, getLiveQueue);
+router.get('/queue/my-tokens', authenticateToken, getMyTokens);
 router.get('/queue/tokens', authenticateToken, requireRole('employee', 'admin', 'superadmin'), getOfficerQueueTokens);
 router.post('/queue/next', authenticateToken, requireRole('employee', 'admin', 'superadmin'), callNextToken);
 router.patch('/queue/tokens/:id/status', authenticateToken, requireRole('employee', 'admin', 'superadmin'), updateTokenStatus);

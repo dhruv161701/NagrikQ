@@ -56,6 +56,30 @@ export const generateToken = async (
     }
 
     // Count waiting tokens today to assign next sequential number and position
+    const bookingDate = slotDate || new Date().toISOString().split('T')[0];
+
+    // Check duplicate booking: same user cannot book the same service multiple times in a day
+    const { data: existingBooking } = await supabaseAdmin
+      .from('queue_tokens')
+      .select('id, token_number, time_slot, status, slot_date')
+      .eq('user_id', userId)
+      .eq('service_id', resolvedServiceId)
+      .or(`slot_date.eq.${bookingDate},queue_date.eq.${bookingDate}`)
+      .not('status', 'in', '("CANCELLED")')
+      .limit(1)
+      .maybeSingle();
+
+    if (existingBooking) {
+      res.status(400).json({
+        success: false,
+        error: {
+          code: 'DUPLICATE_BOOKING',
+          message: `You already have a booking (Token ${existingBooking.token_number} for slot ${existingBooking.time_slot || 'scheduled'}) for this service on ${bookingDate}. Same user cannot book the same service multiple times on the same day.`,
+        },
+      });
+      return;
+    }
+
     const { count: waitingCount } = await supabaseAdmin
       .from('queue_tokens')
       .select('*', { count: 'exact', head: true })
@@ -95,6 +119,26 @@ export const generateToken = async (
                 file_name: doc.fileName || `${(doc.name || 'document').toLowerCase().replace(/\s+/g, '_')}.pdf`,
                 verification_status: 'PENDING',
               });
+            }
+          } else {
+            // Dynamically populate documents configured for this service
+            const { data: reqDocs } = await supabaseAdmin
+              .from('document_requirements')
+              .select('*')
+              .eq('service_id', resolvedServiceId);
+
+            if (reqDocs && reqDocs.length > 0) {
+              for (const reqDoc of reqDocs) {
+                await supabaseAdmin.from('documents').insert({
+                  application_id: newApp.id,
+                  user_id: userId,
+                  document_requirement_id: reqDoc.id,
+                  requirement_name: reqDoc.name,
+                  storage_path: `https://storage.nagrikq.gov.in/docs/${reqDoc.name.toLowerCase().replace(/\s+/g, '_')}.pdf`,
+                  file_name: `${reqDoc.name.toLowerCase().replace(/\s+/g, '_')}.pdf`,
+                  verification_status: 'PENDING',
+                });
+              }
             }
           }
         }
@@ -208,6 +252,50 @@ export const getLiveQueue = async (
     }
 
     res.json({ success: true, data: token || null } as ApiResponse);
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: err.message } });
+  }
+};
+
+export const getMyTokens = async (
+  req: AuthenticatedRequest,
+  res: Response
+): Promise<void> => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) {
+      res.json({ success: true, data: [] } as ApiResponse);
+      return;
+    }
+
+    const { data: tokens, error } = await supabaseAdmin
+      .from('queue_tokens')
+      .select('*, services(id, name, code, category), offices(id, name), applications(id, remarks)')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.warn('[GET_MY_TOKENS_WARN]', error);
+      res.json({ success: true, data: [] } as ApiResponse);
+      return;
+    }
+
+    const formatted = (tokens || []).map((t: any) => {
+      let resolvedSlot = t.time_slot;
+      if (!resolvedSlot && t.applications?.remarks) {
+        const remarks = String(t.applications.remarks);
+        if (remarks.includes('Online booking for ')) {
+          const match = remarks.replace('Online booking for ', '').trim();
+          if (match.includes('-')) resolvedSlot = match;
+        }
+      }
+      return {
+        ...t,
+        time_slot: resolvedSlot || t.time_slot,
+      };
+    });
+
+    res.json({ success: true, data: formatted } as ApiResponse);
   } catch (err: any) {
     res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: err.message } });
   }

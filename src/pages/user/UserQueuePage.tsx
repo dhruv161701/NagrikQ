@@ -39,7 +39,6 @@ import {
   FIXED_30_MIN_SLOTS,
   SERVICE_DOCUMENT_VALIDITY,
   DEFAULT_COUNTER_SEQUENCES,
-  STATE_SPECIFIC_REQUIREMENTS,
   getAvailableBookingDates,
   isSlotInPastForToday,
 } from '../../data/indianLocations';
@@ -310,29 +309,21 @@ export const UserQueuePage: React.FC = () => {
     return Math.max(2, Math.floor(30 / (days > 10 ? 10 : 5)));
   }, [targetService]);
 
-  // Jurisdiction-specific required documents with validity period
+  // Dynamically configured required documents for the selected service
   const jurisdictionDocs = useMemo(() => {
     if (!targetService) return [];
     const baseDocs = targetService.requiredDocuments || [];
-    const extraDocs = STATE_SPECIFIC_REQUIREMENTS[selectedState] || [];
-    return [
-      ...baseDocs.map((d) => ({
-        id: d.id,
-        name: d.name,
-        validity:
-          d.validityPeriod ||
-          (SERVICE_DOCUMENT_VALIDITY as any)[targetService.name] ||
-          'Valid for 3 Years',
-        isStateSpecific: false,
-      })),
-      ...extraDocs.map((e, idx) => ({
-        id: `extra-${idx}`,
-        name: `${e.docName} (${selectedState} State Mandate)`,
-        validity: 'Valid for 1 Year (State Rule)',
-        isStateSpecific: true,
-      })),
-    ];
-  }, [targetService, selectedState]);
+    return baseDocs.map((d) => ({
+      id: d.id,
+      name: d.name,
+      validity:
+        d.validityPeriod ||
+        (SERVICE_DOCUMENT_VALIDITY as any)[targetService.name] ||
+        targetService.documentValidity ||
+        'Valid for 3 Years',
+      isStateSpecific: false,
+    }));
+  }, [targetService]);
 
   // Estimated wait time calculated separately for that selected State and City
   const selectedJurisdictionWaiters = useMemo(() => {
@@ -377,11 +368,39 @@ export const UserQueuePage: React.FC = () => {
     }).filter((s) => s.isFuture);
   }, [queueTokens, slotCapacity]);
 
+  const duplicateBookingForSelectedDate = useMemo(() => {
+    if (!targetService) return null;
+    const effectiveDate = selectedSlotDate || new Date().toISOString().split('T')[0];
+    const uid = userId || currentUser?.id;
+    return queueTokens.find((q) => {
+      const matchUser = uid && q.citizenId === uid;
+      const matchService = q.serviceId === targetService.id;
+      const matchDate = q.slotDate === effectiveDate || (!q.slotDate && effectiveDate === new Date().toISOString().split('T')[0]);
+      return matchUser && matchService && matchDate && q.status !== 'CANCELLED';
+    });
+  }, [queueTokens, targetService, selectedSlotDate, userId, currentUser?.id]);
+
   const handleBookToken = async (e: React.FormEvent) => {
     e.preventDefault();
     setBookingError('');
     if (!targetService) {
       setBookingError('Please select a valid government service.');
+      return;
+    }
+
+    const effectiveDate = selectedSlotDate || new Date().toISOString().split('T')[0];
+    const uid = userId || currentUser?.id;
+    const existingBooking = queueTokens.find((q) => {
+      const matchUser = uid && q.citizenId === uid;
+      const matchService = q.serviceId === targetService.id;
+      const matchDate = q.slotDate === effectiveDate || (!q.slotDate && effectiveDate === new Date().toISOString().split('T')[0]);
+      return matchUser && matchService && matchDate && q.status !== 'CANCELLED';
+    });
+
+    if (existingBooking) {
+      setBookingError(
+        `You already have a booking (Token ${existingBooking.tokenNumber} for ${existingBooking.timeSlot || 'Scheduled Slot'}) for ${targetService.name} on ${effectiveDate}. The same user cannot book the same service multiple times on the same day.`
+      );
       return;
     }
 
@@ -422,8 +441,8 @@ export const UserQueuePage: React.FC = () => {
       }
       setIsBookModalOpen(false);
       await refreshQueueTokens();
-    } catch {
-      setBookingError('Failed to generate virtual token. Please try again.');
+    } catch (err: any) {
+      setBookingError(err?.message || 'Failed to generate virtual token. Please try again.');
     } finally {
       setBookingSubmitting(false);
     }
@@ -1441,6 +1460,30 @@ export const UserQueuePage: React.FC = () => {
             </div>
           </div>
 
+          {duplicateBookingForSelectedDate && (
+            <div
+              style={{
+                padding: '12px 14px',
+                borderRadius: '8px',
+                backgroundColor: 'var(--color-danger-50)',
+                border: '1.5px solid var(--color-danger-300)',
+                color: 'var(--color-danger-800)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '10px',
+                fontSize: '0.85rem',
+                fontWeight: 600,
+              }}
+            >
+              <AlertTriangle size={20} color="var(--color-danger-600)" style={{ flexShrink: 0 }} />
+              <div>
+                <strong>Same-Day Booking Restriction:</strong> You already have Token{' '}
+                <span style={{ textDecoration: 'underline' }}>{duplicateBookingForSelectedDate.tokenNumber}</span> for {targetService?.name} on{' '}
+                {selectedSlotDate || 'today'} ({duplicateBookingForSelectedDate.timeSlot || 'Scheduled'}). The same citizen cannot book the same service multiple times on the same date.
+              </div>
+            </div>
+          )}
+
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '8px' }}>
             <Button
               type="button"
@@ -1453,10 +1496,14 @@ export const UserQueuePage: React.FC = () => {
             <Button
               type="submit"
               variant="saffron"
-              disabled={bookingSubmitting}
+              disabled={bookingSubmitting || !!duplicateBookingForSelectedDate}
               style={{ fontWeight: 800, padding: '10px 20px' }}
             >
-              {bookingSubmitting ? 'Issuing Token...' : `Confirm Slot (${selectedTimeSlot})`}
+              {bookingSubmitting
+                ? 'Issuing Token...'
+                : duplicateBookingForSelectedDate
+                ? 'Already Booked For Today'
+                : `Confirm Slot (${selectedTimeSlot})`}
             </Button>
           </div>
         </form>

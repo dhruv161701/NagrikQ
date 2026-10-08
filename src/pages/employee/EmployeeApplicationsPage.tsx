@@ -129,11 +129,73 @@ export const EmployeeApplicationsPage: React.FC = () => {
     }
   }, [applications, inspectApp]);
 
+  const targetService = useMemo(() => {
+    if (!inspectApp) return null;
+    return services.find(
+      (s) =>
+        s.id === inspectApp.serviceId ||
+        s.name.toLowerCase().trim() === inspectApp.serviceName?.toLowerCase().trim()
+    );
+  }, [inspectApp, services]);
+
+  // Dynamically resolve the authoritative required documents for this service:
+  // If the service has configured requiredDocuments (e.g. 2 documents for "abc"), show ONLY those exact 2 documents!
+  const activeInspectDocs = useMemo(() => {
+    if (!inspectApp) return [];
+    if (
+      targetService &&
+      Array.isArray(targetService.requiredDocuments) &&
+      targetService.requiredDocuments.length > 0
+    ) {
+      return targetService.requiredDocuments.map((reqDoc, idx) => {
+        const existing = inspectApp.documents.find(
+          (d) =>
+            d.requirementId === reqDoc.id ||
+            d.requirementName?.toLowerCase().trim() === reqDoc.name?.toLowerCase().trim() ||
+            d.id === reqDoc.id
+        );
+        return {
+          id: existing?.id || `req-doc-${reqDoc.id || idx}`,
+          requirementId: reqDoc.id,
+          requirementName: reqDoc.name,
+          fileUrl: existing?.fileUrl || '#',
+          fileName: existing?.fileName || `${reqDoc.name.toLowerCase().replace(/[^a-z0-9]/g, '_')}.pdf`,
+          status: existing?.status || 'PENDING',
+          validityPeriod: reqDoc.validityPeriod || targetService.documentValidity || 'Valid for 3 Years',
+          notes: existing?.notes,
+        };
+      });
+    }
+    return inspectApp.documents;
+  }, [inspectApp, targetService]);
+
   const handleOpenDocsModal = (app: Application) => {
     setInspectApp(app);
-    // Initialize checks based on current document status
+    const serviceForApp = services.find(
+      (s) =>
+        s.id === app.serviceId ||
+        s.name.toLowerCase().trim() === app.serviceName?.toLowerCase().trim()
+    );
+    const docs =
+      serviceForApp &&
+      Array.isArray(serviceForApp.requiredDocuments) &&
+      serviceForApp.requiredDocuments.length > 0
+        ? serviceForApp.requiredDocuments.map((reqDoc, idx) => {
+            const existing = app.documents.find(
+              (d) =>
+                d.requirementId === reqDoc.id ||
+                d.requirementName?.toLowerCase().trim() === reqDoc.name?.toLowerCase().trim() ||
+                d.id === reqDoc.id
+            );
+            return {
+              id: existing?.id || `req-doc-${reqDoc.id || idx}`,
+              status: existing?.status || 'PENDING',
+            };
+          })
+        : app.documents;
+
     const initialChecks: Record<string, 'OK' | 'NOT OK'> = {};
-    app.documents.forEach((d) => {
+    docs.forEach((d) => {
       if (d.status === 'VERIFIED') initialChecks[d.id] = 'OK';
       else if (d.status === 'REJECTED') initialChecks[d.id] = 'NOT OK';
     });
@@ -148,8 +210,8 @@ export const EmployeeApplicationsPage: React.FC = () => {
   const handleDonePhysicalCheck = async () => {
     if (!inspectApp) return;
 
-    // Check if every document has been physically checked (OK or NOT OK)
-    const uncheckedDocs = inspectApp.documents.filter((d) => !physicalDocChecks[d.id]);
+    // Check if every document in activeInspectDocs has been physically checked (OK or NOT OK)
+    const uncheckedDocs = activeInspectDocs.filter((d) => !physicalDocChecks[d.id]);
     if (uncheckedDocs.length > 0) {
       setValidationError(
         `Please inspect all documents. The following documents have not been marked: ${uncheckedDocs
@@ -163,12 +225,12 @@ export const EmployeeApplicationsPage: React.FC = () => {
     const currentApplicantName = inspectApp.citizenName || 'Applicant';
 
     // Identify failed documents
-    const failedDocs = inspectApp.documents.filter((d) => physicalDocChecks[d.id] === 'NOT OK');
+    const failedDocs = activeInspectDocs.filter((d) => physicalDocChecks[d.id] === 'NOT OK');
     const isAllOk = failedDocs.length === 0;
 
     if (isAllOk) {
       // 1. ALL OK: Mark physical check completed and allow process to proceed
-      for (const d of inspectApp.documents) {
+      for (const d of activeInspectDocs) {
         await updateDocumentStatus(inspectApp.id, d.id, 'VERIFIED');
       }
 
@@ -208,7 +270,7 @@ export const EmployeeApplicationsPage: React.FC = () => {
       // 2. ONE OR MORE NOT OK: Stop process and inform user which document needs correction
       const failedNames = failedDocs.map((d) => d.requirementName).join(', ');
 
-      for (const d of inspectApp.documents) {
+      for (const d of activeInspectDocs) {
         const isThisOk = physicalDocChecks[d.id] === 'OK';
         await updateDocumentStatus(inspectApp.id, d.id, isThisOk ? 'VERIFIED' : 'REJECTED');
       }
@@ -676,7 +738,7 @@ export const EmployeeApplicationsPage: React.FC = () => {
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '8px' }}>
                 <div>
                   <h3 style={{ fontSize: '1.15rem', color: 'var(--color-primary-900)', fontWeight: 800, margin: 0 }}>
-                    Physical Hard-Copy Document Check ({inspectApp.documents.length})
+                    Physical Hard-Copy Document Check ({activeInspectDocs.length})
                   </h3>
                   <span style={{ fontSize: '0.85rem', color: 'var(--color-neutral-600)' }}>
                     Physically inspect each original document presented by the applicant at Counter {activeCounter}. Mark each as <strong>OK</strong> or <strong>NOT OK</strong>.
@@ -707,13 +769,13 @@ export const EmployeeApplicationsPage: React.FC = () => {
                 </div>
               )}
 
-              {inspectApp.documents.length === 0 ? (
+              {activeInspectDocs.length === 0 ? (
                 <div style={{ padding: '24px', textAlign: 'center', color: 'var(--color-neutral-500)', backgroundColor: 'var(--color-neutral-50)', borderRadius: '8px' }}>
                   No required documents registered for this service.
                 </div>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', maxHeight: '420px', overflowY: 'auto', paddingRight: '4px' }}>
-                  {inspectApp.documents.map((doc) => {
+                  {activeInspectDocs.map((doc) => {
                     const currentCheck = physicalDocChecks[doc.id];
                     const isOk = currentCheck === 'OK';
                     const isNotOk = currentCheck === 'NOT OK';

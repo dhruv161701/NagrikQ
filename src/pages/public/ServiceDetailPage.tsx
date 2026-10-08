@@ -15,6 +15,8 @@ import {
   ShieldCheck,
   MapPin,
   Ticket,
+  AlertCircle,
+  AlertTriangle,
 } from 'lucide-react';
 import {
   INDIAN_STATES,
@@ -22,7 +24,6 @@ import {
   FIXED_30_MIN_SLOTS,
   SERVICE_DOCUMENT_VALIDITY,
   DEFAULT_COUNTER_SEQUENCES,
-  STATE_SPECIFIC_REQUIREMENTS,
   getAvailableBookingDates,
   isSlotInPastForToday,
 } from '../../data/indianLocations';
@@ -37,6 +38,8 @@ export const ServiceDetailPage: React.FC = () => {
 
   const [isApplyModalOpen, setIsApplyModalOpen] = useState(false);
   const [isAIModalOpen, setIsAIModalOpen] = useState(false);
+  const [applyError, setApplyError] = useState('');
+  const [applySubmitting, setApplySubmitting] = useState(false);
 
   // Jurisdiction & Slot Booking Form State
   const [selectedState, setSelectedState] = useState<string>('Gujarat');
@@ -86,26 +89,17 @@ export const ServiceDetailPage: React.FC = () => {
     return Math.max(2, Math.floor(30 / (days > 10 ? 10 : 5)));
   }, [service]);
 
-  // Jurisdiction documents applicable with validity periods
+  // Dynamically configured required documents for this service
   const applicableDocs = useMemo(() => {
     if (!service) return [];
     const baseDocs = service.requiredDocuments || [];
-    const extraDocs = STATE_SPECIFIC_REQUIREMENTS[selectedState] || [];
-    return [
-      ...baseDocs.map((d) => ({
-        id: d.id,
-        name: d.name,
-        validity: d.validityPeriod || (SERVICE_DOCUMENT_VALIDITY as any)[service.name] || 'Valid for 3 Years',
-        isStateSpecific: false,
-      })),
-      ...extraDocs.map((e, idx) => ({
-        id: `extra-${idx}`,
-        name: `${e.docName} (${selectedState} State Mandate)`,
-        validity: 'Valid for 1 Year (State Rule)',
-        isStateSpecific: true,
-      })),
-    ];
-  }, [service, selectedState]);
+    return baseDocs.map((d) => ({
+      id: d.id,
+      name: d.name,
+      validity: d.validityPeriod || (SERVICE_DOCUMENT_VALIDITY as any)[service.name] || service.documentValidity || 'Valid for 3 Years',
+      isStateSpecific: false,
+    }));
+  }, [service]);
 
   if (!service) {
     return (
@@ -118,41 +112,75 @@ export const ServiceDetailPage: React.FC = () => {
     );
   }
 
-  const handleCreateApplicationAndToken = () => {
+  const duplicateBookingForSelectedDate = useMemo(() => {
+    if (!currentUser || !service) return null;
+    const effectiveDate = selectedSlotDate || new Date().toISOString().split('T')[0];
+    return queueTokens.find((q) => {
+      const matchUser = q.citizenId === currentUser.id;
+      const matchService = q.serviceId === service.id;
+      const matchDate = q.slotDate === effectiveDate || (!q.slotDate && effectiveDate === new Date().toISOString().split('T')[0]);
+      return matchUser && matchService && matchDate && q.status !== 'CANCELLED';
+    });
+  }, [queueTokens, currentUser?.id, service?.id, selectedSlotDate]);
+
+  const handleCreateApplicationAndToken = async () => {
     if (!currentUser) {
       navigate(`/login?redirect=/services/${service.id}`);
       return;
     }
 
-    const citizenId = currentUser.id;
-    const citizenName = currentUser.name;
-    const citizenPhone = currentUser.phone || '+91 9876543210';
-
-    const mockDocSubmissions = applicableDocs.map((d) => ({
-      requirementId: d.id,
-      requirementName: d.name,
-      fileName: `${d.name.toLowerCase().replace(/[^a-z0-9]/g, '_')}_document.pdf`,
-      validityPeriod: d.validity,
-    }));
-
-    const targetCounterPath =
-      service.counterPath && service.counterPath.length > 0
-        ? service.counterPath
-        : (DEFAULT_COUNTER_SEQUENCES as any)[service.category] ||
-          DEFAULT_COUNTER_SEQUENCES.Default;
-
-    submitApplication(service.id, service.name, citizenId, citizenName, citizenPhone, mockDocSubmissions);
-    issueQueueToken(citizenId, citizenName, citizenPhone, service.id, service.name, {
-      timeSlot: selectedTimeSlot,
-      slotDate: selectedSlotDate,
-      selectedState,
-      selectedCity,
-      counterPath: targetCounterPath,
-      documents: mockDocSubmissions,
+    setApplyError('');
+    const effectiveDate = selectedSlotDate || new Date().toISOString().split('T')[0];
+    const existing = queueTokens.find((q) => {
+      const matchUser = q.citizenId === currentUser.id;
+      const matchService = q.serviceId === service.id;
+      const matchDate = q.slotDate === effectiveDate || (!q.slotDate && effectiveDate === new Date().toISOString().split('T')[0]);
+      return matchUser && matchService && matchDate && q.status !== 'CANCELLED';
     });
 
-    setIsApplyModalOpen(false);
-    navigate('/user/queue');
+    if (existing) {
+      setApplyError(
+        `You already have a booking (Token ${existing.tokenNumber} for ${existing.timeSlot || 'Scheduled Slot'}) for ${service.name} on ${effectiveDate}. The same user cannot book the same service multiple times on the same day.`
+      );
+      return;
+    }
+
+    setApplySubmitting(true);
+    try {
+      const citizenId = currentUser.id;
+      const citizenName = currentUser.name;
+      const citizenPhone = currentUser.phone || '+91 9876543210';
+
+      const mockDocSubmissions = applicableDocs.map((d) => ({
+        requirementId: d.id,
+        requirementName: d.name,
+        fileName: `${d.name.toLowerCase().replace(/[^a-z0-9]/g, '_')}_document.pdf`,
+        validityPeriod: d.validity,
+      }));
+
+      const targetCounterPath =
+        service.counterPath && service.counterPath.length > 0
+          ? service.counterPath
+          : (DEFAULT_COUNTER_SEQUENCES as any)[service.category] ||
+            DEFAULT_COUNTER_SEQUENCES.Default;
+
+      submitApplication(service.id, service.name, citizenId, citizenName, citizenPhone, mockDocSubmissions);
+      await issueQueueToken(citizenId, citizenName, citizenPhone, service.id, service.name, {
+        timeSlot: selectedTimeSlot,
+        slotDate: selectedSlotDate,
+        selectedState,
+        selectedCity,
+        counterPath: targetCounterPath,
+        documents: mockDocSubmissions,
+      });
+
+      setIsApplyModalOpen(false);
+      navigate('/user/queue');
+    } catch (err: any) {
+      setApplyError(err?.message || 'Failed to issue booking token. Please try again.');
+    } finally {
+      setApplySubmitting(false);
+    }
   };
 
   return (
@@ -353,12 +381,57 @@ export const ServiceDetailPage: React.FC = () => {
       {/* Apply Modal */}
       <Modal
         isOpen={isApplyModalOpen}
-        onClose={() => setIsApplyModalOpen(false)}
+        onClose={() => {
+          if (!applySubmitting) setIsApplyModalOpen(false);
+        }}
         title={`Apply & Book Slot — ${service.name}`}
         description="Select your jurisdiction and advance 30-minute time slot for your virtual token."
         maxWidth="680px"
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+          {applyError && (
+            <div
+              style={{
+                padding: '12px 14px',
+                borderRadius: '8px',
+                backgroundColor: 'var(--color-danger-50)',
+                border: '1.5px solid var(--color-danger-300)',
+                color: 'var(--color-danger-800)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                fontSize: '0.85rem',
+              }}
+            >
+              <AlertCircle size={18} color="var(--color-danger-600)" style={{ flexShrink: 0 }} />
+              <span>{applyError}</span>
+            </div>
+          )}
+
+          {duplicateBookingForSelectedDate && (
+            <div
+              style={{
+                padding: '12px 14px',
+                borderRadius: '8px',
+                backgroundColor: 'var(--color-danger-50)',
+                border: '1.5px solid var(--color-danger-300)',
+                color: 'var(--color-danger-800)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '10px',
+                fontSize: '0.85rem',
+                fontWeight: 600,
+              }}
+            >
+              <AlertTriangle size={20} color="var(--color-danger-600)" style={{ flexShrink: 0 }} />
+              <div>
+                <strong>Same-Day Booking Restriction:</strong> You already have Token{' '}
+                <span style={{ textDecoration: 'underline' }}>{duplicateBookingForSelectedDate.tokenNumber}</span> for this service on{' '}
+                {selectedSlotDate || 'today'} ({duplicateBookingForSelectedDate.timeSlot || 'Scheduled'}). The same citizen cannot book the same service multiple times on the same day.
+              </div>
+            </div>
+          )}
+
           {/* State and City Selector */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', backgroundColor: 'var(--color-primary-50)', padding: '14px', borderRadius: '10px', border: '1px solid var(--color-primary-200)' }}>
             <div>
@@ -582,11 +655,20 @@ export const ServiceDetailPage: React.FC = () => {
           </div>
 
           <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '12px' }}>
-            <Button variant="secondary" onClick={() => setIsApplyModalOpen(false)}>
+            <Button variant="secondary" onClick={() => setIsApplyModalOpen(false)} disabled={applySubmitting}>
               Cancel
             </Button>
-            <Button variant="saffron" onClick={handleCreateApplicationAndToken} icon={<Ticket size={18} />}>
-              Confirm & Book Slot ({selectedTimeSlot})
+            <Button
+              variant="saffron"
+              onClick={handleCreateApplicationAndToken}
+              disabled={applySubmitting || !!duplicateBookingForSelectedDate}
+              icon={<Ticket size={18} />}
+            >
+              {applySubmitting
+                ? 'Booking Slot...'
+                : duplicateBookingForSelectedDate
+                ? 'Already Booked For This Date'
+                : `Confirm & Book Slot (${selectedTimeSlot})`}
             </Button>
           </div>
         </div>
