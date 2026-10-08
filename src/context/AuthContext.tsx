@@ -65,6 +65,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             const mappedUser = mapProfileToUser(profile);
             console.log('[AUTH] Authenticated user loaded:', mappedUser.email, '| Role:', mappedUser.role, '| Onboarding:', mappedUser.onboardingCompleted);
             setCurrentUser(mappedUser);
+
+            // Clean OAuth access_token hash from browser URL to prevent token leakage and browser security warnings
+            if (typeof window !== 'undefined' && window.location.hash && window.location.hash.includes('access_token')) {
+              window.history.replaceState(null, '', window.location.pathname + window.location.search);
+            }
           }
         } catch (err) {
           console.warn('[AUTH] Error loading profile for session user:', err);

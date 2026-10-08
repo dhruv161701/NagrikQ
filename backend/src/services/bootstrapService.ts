@@ -91,7 +91,97 @@ export const ensureSuperAdminExists = async (): Promise<void> => {
     console.log(`   Email: ${superAdminEmail}`);
     console.log(`   Password: ${superAdminPassword}`);
     console.log('   Role: superadmin -> Route: /super-admin/dashboard');
+
+    // 5. Automatically seed RAG knowledge chunks if empty
+    await ensureKnowledgeBaseSeeded();
   } catch (err: any) {
     console.error('[BOOTSTRAP] Exception during Super Admin setup:', err.message);
+  }
+};
+
+/**
+ * Automatically index active services and document requirements into pgvector knowledge chunks
+ */
+export const ensureKnowledgeBaseSeeded = async (): Promise<void> => {
+  try {
+    const { count, error } = await supabaseAdmin
+      .from('knowledge_chunks')
+      .select('*', { count: 'exact', head: true });
+
+    if (error) {
+      console.warn('[BOOTSTRAP] Could not check knowledge_chunks count:', error.message);
+      return;
+    }
+
+    if (count && count > 0) {
+      console.log(`[BOOTSTRAP] RAG Knowledge Base already indexed (${count} chunks).`);
+      return;
+    }
+
+    console.log('[BOOTSTRAP] Initializing RAG Knowledge Base indexing...');
+    const { data: services } = await supabaseAdmin.from('services').select('*');
+    if (!services || services.length === 0) return;
+
+    const { data: docs } = await supabaseAdmin.from('document_requirements').select('*');
+    const docsByService = new Map<string, any[]>();
+    (docs || []).forEach((d) => {
+      const list = docsByService.get(d.service_id) || [];
+      list.push(d);
+      docsByService.set(d.service_id, list);
+    });
+
+    const { generateEmbedding } = await import('./geminiService');
+
+    for (const srv of services) {
+      const srvDocs = docsByService.get(srv.id) || [];
+      const docListStr = srvDocs.length > 0
+        ? srvDocs.map((d) => `• ${d.name} (${d.is_required ? 'Required' : 'Optional'}${d.description ? ': ' + d.description : ''})`).join('\n')
+        : 'Standard identification documents required.';
+
+      const chunksToInsert = [
+        {
+          service_id: srv.id,
+          service_name: srv.name,
+          state: 'Gujarat',
+          department: srv.category || 'Public Administration',
+          topic: 'required_documents',
+          content: `To apply for ${srv.name} (${srv.category}), the following documents are needed:\n${docListStr}`,
+          metadata: { category: srv.category, service_id: srv.id, topic: 'required_documents' },
+        },
+        {
+          service_id: srv.id,
+          service_name: srv.name,
+          state: 'Gujarat',
+          department: srv.category || 'Public Administration',
+          topic: 'process_and_timeline',
+          content: `For ${srv.name}: The official processing time is approximately ${srv.processing_time_days || 7} working days. The government fee is ₹${srv.fee_amount || 0}. Description: ${srv.description || srv.name}. Citizens can book a virtual queue token online on NagrikQ to avoid office queues.`,
+          metadata: { category: srv.category, service_id: srv.id, topic: 'process_and_timeline' },
+        },
+      ];
+
+      for (const ch of chunksToInsert) {
+        try {
+          const emb = await generateEmbedding(ch.content);
+          if (emb && emb.length > 0) {
+            await supabaseAdmin.from('knowledge_chunks').insert({
+              service_id: ch.service_id,
+              service_name: ch.service_name,
+              state: ch.state,
+              department: ch.department,
+              topic: ch.topic,
+              content: ch.content,
+              embedding: emb as any,
+              metadata: ch.metadata,
+            });
+          }
+        } catch (embErr: any) {
+          console.warn(`[BOOTSTRAP] Failed embedding for ${srv.name}:`, embErr?.message);
+        }
+      }
+    }
+
+    console.log('✅ [BOOTSTRAP] RAG Knowledge Base successfully populated with service embeddings.');
+  } catch (err: any) {
+    console.error('[BOOTSTRAP] Error seeding knowledge base:', err.message);
   }
 };

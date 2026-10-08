@@ -60,6 +60,7 @@ import {
   downloadFromCloudinary,
   deleteFromCloudinary,
 } from '../controllers/uploadController';
+import { askRagQuestion } from '../controllers/aiController';
 
 const router = Router();
 
@@ -94,6 +95,9 @@ router.post('/queue/tokens/:id/rebook', authenticateToken, rebookToken);
 
 router.post('/complaints', authenticateToken, submitComplaint);
 router.get('/complaints', authenticateToken, getComplaints);
+
+// RAG AI ASSISTANT ROUTES (public - read-only query)
+router.post('/rag/ask', askRagQuestion);
 
 // CLOUDINARY UPLOAD & FILE ROUTES
 router.post('/upload/cloudinary', uploadToCloudinary);

@@ -36,6 +36,10 @@ export const LoginPage: React.FC = () => {
   // Auto-redirect authenticated user away from login page
   useEffect(() => {
     if (!isLoading && isAuthenticated && currentUser) {
+      if (typeof window !== 'undefined' && window.location.hash && window.location.hash.includes('access_token')) {
+        window.history.replaceState(null, '', window.location.pathname + window.location.search);
+      }
+
       const isOnboarded =
         currentUser.onboardingCompleted === true ||
         (currentUser.id && localStorage.getItem(`nagrikq_onboarding_${currentUser.id}`) === 'true') ||

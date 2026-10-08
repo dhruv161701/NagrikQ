@@ -48,6 +48,30 @@ DO $$ BEGIN
   END IF;
 END $$;
 
+-- 1B. PGVECTOR EXTENSION FOR VECTOR SIMILARITY SEARCH
+CREATE EXTENSION IF NOT EXISTS vector;
+
+-- 2. KNOWLEDGE BASE CHUNKS TABLE FOR RAG
+CREATE TABLE IF NOT EXISTS public.knowledge_chunks (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  service_id UUID REFERENCES public.services(id) ON DELETE CASCADE,
+  service_name VARCHAR(255) NOT NULL,
+  state VARCHAR(100) DEFAULT 'Gujarat',
+  department VARCHAR(255),
+  document_type VARCHAR(100),
+  topic VARCHAR(100) NOT NULL,
+  content TEXT NOT NULL,
+  embedding vector(768),
+  metadata JSONB DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Vector index for fast similarity search
+CREATE INDEX IF NOT EXISTS knowledge_chunks_embedding_idx
+ON public.knowledge_chunks USING ivfflat (embedding vector_cosine_ops)
+WITH (threads = 1, m = 60);
+
 -- 2. PROFILES TABLE (Linked to auth.users)
 CREATE TABLE IF NOT EXISTS public.profiles (
   id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,

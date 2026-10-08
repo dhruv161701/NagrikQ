@@ -3,6 +3,7 @@ import { Bot, Send, Sparkles, BookOpen, RefreshCw } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { useUI } from '../../context/UIContext';
+import { apiClient } from '../../services/apiClient';
 
 export interface ChatMessage {
   id: string;
@@ -23,7 +24,9 @@ const SUGGESTED_QUESTIONS = [
   'How do I track my virtual queue token status?',
 ];
 
-export const AIAssistantWidget: React.FC<AIAssistantWidgetProps> = ({ initialContextService }) => {
+export const AIAssistantWidget: React.FC<AIAssistantWidgetProps> = ({
+  initialContextService,
+}) => {
   const { uiMode } = useUI();
   const isSimple = uiMode === 'simple';
   const [inputQuery, setInputQuery] = useState('');
@@ -41,7 +44,7 @@ export const AIAssistantWidget: React.FC<AIAssistantWidgetProps> = ({ initialCon
     },
   ]);
 
-  const handleSend = (queryToSend?: string) => {
+  const handleSend = async (queryToSend?: string) => {
     const text = queryToSend || inputQuery;
     if (!text.trim()) return;
 
@@ -56,29 +59,53 @@ export const AIAssistantWidget: React.FC<AIAssistantWidgetProps> = ({ initialCon
     setInputQuery('');
     setIsLoading(true);
 
-    setTimeout(() => {
-      let reply = `To apply for an Income Certificate in Gujarat, you currently require 4 primary verified documents:\n1. Aadhaar Card (Applicant)\n2. Address Proof (Electricity Bill or Ration Card)\n3. Income Proof (Form 16 / Salary Slip / Income Affidavit)\n4. Recent Passport Photograph\n\nOnce uploaded, processing takes approximately 3 working days. You will receive a Virtual Queue Token upon scheduling your office visit.`;
-      let sources = ['Revenue Dept Gazette Notification #GR-2025-91', 'Digital Seva Portal Rules'];
+    try {
+      const result = await apiClient.post<{
+        answer: string;
+        sources: Array<{
+          service_id: string;
+          service_name: string;
+          topic: string;
+          content: string;
+        }>;
+      }>('/api/rag/ask', { question: text, service_id: initialContextService });
 
-      if (text.toLowerCase().includes('senior') || text.toLowerCase().includes('elder')) {
-        reply = `For a Senior Citizen Identity Card (60+ years):\n1. Age Proof (Aadhaar / Passport / School Leaving Cert)\n2. Address Proof\n3. 2 Passport Photographs\n\nFee is ₹0 (Free service) and processing is completed within 24 hours.`;
-        sources = ['Social Welfare Dept Guidelines'];
-      } else if (text.toLowerCase().includes('queue') || text.toLowerCase().includes('token')) {
-        reply = `You can get a Virtual Queue Token directly through NagrikQ after selecting your target office. Once generated, your token will update in realtime. Arrive when there are 2-3 people ahead to avoid any lobby waiting!`;
-        sources = ['NagrikQ Queue Management Standard Operating Procedure'];
+      if (result.success && result.data) {
+        const { answer, sources } = result.data;
+
+        const botMsg: ChatMessage = {
+          id: `a-${Date.now()}`,
+          sender: 'assistant',
+          text: answer,
+          sources: sources?.map((s) => `${s.service_name} - ${s.topic}`).filter(Boolean),
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        };
+
+        setMessages((prev) => [...prev, botMsg]);
+      } else {
+        const errorMsg = result.error?.message || 'Unknown error occurred';
+        const botMsg: ChatMessage = {
+          id: `a-${Date.now()}`,
+          sender: 'assistant',
+          text: `I'm sorry, I encountered an error: ${errorMsg}. Please try again.`,
+          sources: [],
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        };
+        setMessages((prev) => [...prev, botMsg]);
       }
-
+    } catch (err: any) {
+      console.error('[ERR] AI Assistant API call failed:', err);
       const botMsg: ChatMessage = {
         id: `a-${Date.now()}`,
         sender: 'assistant',
-        text: reply,
-        sources,
+        text: 'Sorry, I am unable to reach the AI service at the moment. Please try again later.',
+        sources: [],
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       };
-
       setMessages((prev) => [...prev, botMsg]);
+    } finally {
       setIsLoading(false);
-    }, 1200);
+    }
   };
 
   return (
@@ -115,7 +142,7 @@ export const AIAssistantWidget: React.FC<AIAssistantWidgetProps> = ({ initialCon
               NagrikQ AI Citizen Assistant {initialContextService ? `(${initialContextService})` : ''}
             </h4>
             <span style={{ fontSize: '0.78rem', color: 'var(--color-border)', display: 'flex', alignItems: 'center', gap: '4px' }}>
-              <Sparkles size={12} /> Powered by RAG + Gemini AI (Interface Ready)
+              <Sparkles size={12} /> Powered by RAG + Gemini AI
             </span>
           </div>
         </div>
