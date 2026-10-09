@@ -9,11 +9,19 @@ const getGenAI = (): GoogleGenerativeAI => {
   return new GoogleGenerativeAI(key);
 };
 
+const CANDIDATE_CHAT_MODELS = [
+  'gemini-3.5-flash',
+  'gemini-3.5-flash-lite',
+  'gemini-3.1-flash-lite',
+  'gemini-3.6-flash',
+  'gemini-flash-lite-latest',
+  'gemini-3-flash-preview',
+];
+
 export const geminiChatModel = {
   generateContent: async (prompt: string) => {
     const genAI = getGenAI();
-    const candidateModels = ['gemini-1.5-flash', 'gemini-1.5-flash-8b', 'gemini-1.5-pro'];
-    for (const mName of candidateModels) {
+    for (const mName of CANDIDATE_CHAT_MODELS) {
       try {
         const model = genAI.getGenerativeModel({ model: mName });
         return await model.generateContent(prompt);
@@ -21,7 +29,7 @@ export const geminiChatModel = {
         // try next candidate
       }
     }
-    const fallbackModel = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    const fallbackModel = genAI.getGenerativeModel({ model: CANDIDATE_CHAT_MODELS[0] });
     return await fallbackModel.generateContent(prompt);
   },
 };
@@ -109,8 +117,7 @@ Context:
 
   try {
     let result;
-    const candidateModels = ['gemini-1.5-flash', 'gemini-1.5-flash-8b', 'gemini-1.5-pro'];
-    for (const mName of candidateModels) {
+    for (const mName of CANDIDATE_CHAT_MODELS) {
       try {
         result = await genAI.getGenerativeModel({ model: mName }).generateContent(fullPrompt);
         if (result) break;
@@ -120,7 +127,7 @@ Context:
     }
 
     if (!result) {
-      result = await genAI.getGenerativeModel({ model: 'gemini-1.5-flash' }).generateContent(fullPrompt);
+      return 'I do not have enough information about this requirement.';
     }
 
     const response = await result.response;
