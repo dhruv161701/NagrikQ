@@ -25,7 +25,7 @@
           "string": [
             {
               "value1": "={{ $json.headers['x-webhook-secret'] }}",
-              "value2": "nagrikq_idp_secret_key_2026"
+              "value2": "={{ $env.WEBHOOK_SECRET }}"
             }
           ]
         }
@@ -75,7 +75,7 @@
     {
       "parameters": {
         "requestMethod": "POST",
-        "url": "=https://api.telegram.org/bot8874803375:AAECsJ9jyBd8d-LlcNJMEpt1ZyYGqYbkHzQ/sendMessage",
+        "url": "=https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/sendMessage",
         "options": {
           "allowUnauthorizedCerts": true
         },
@@ -91,7 +91,7 @@
             },
             {
               "name": "text",
-              "value": "=🔔 *NagrikQ IDP Creation Notification*\\n\\nYour application has been created successfully!\\n\\n• *Application No*: `{{ $json.applicationNumber }}`\\n• *Service*: {{ $json.serviceName }}\\n• *Status*: `{{ $json.status }}`\\n• *Date*: {{ $json.submittedAt.split('T')[0] }}\\n\\n🔗 *View Application Details:*\\nhttp://localhost:5173/user/applications"
+              "value": "=🔔 *NagrikQ IDP Creation Notification*\\n\\nYour application has been created successfully!\\n\\n• *Application No*: `{{ $json.applicationNumber }}`\\n• *Service*: {{ $json.serviceName }}\\n• *Status*: `{{ $json.status }}`\\n• *Date*: {{ $json.submittedAt.split('T')[0] }}\\n\\n🔗 *View Application Details:*\\n{{ $env.FRONTEND_URL || 'http://localhost:5173' }}/user/applications"
             }
           ]
         }

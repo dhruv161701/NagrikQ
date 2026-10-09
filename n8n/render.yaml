@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: nagrikq-n8n-workflow
+    env: node
+    rootDir: n8n
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: N8N_HOST
+        value: 0.0.0.0
+      - key: N8N_PROTOCOL
+        value: https
+      - key: NODE_ENV
+        value: production
+      - key: WEBHOOK_SECRET
+        sync: false
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: FRONTEND_URL
+        value: http://localhost:5173
+      - key: N8N_ENCRYPTION_KEY
+        generateValue: true
+      - key: EXECUTIONS_DATA_PRUNE
+        value: "true"
+      - key: EXECUTIONS_DATA_MAX_AGE
+        value: "168"
