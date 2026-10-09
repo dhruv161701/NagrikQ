@@ -6,6 +6,7 @@ import { Button } from '../../components/ui/Button';
 import { StatusBadge } from '../../components/ui/StatusBadge';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { Modal } from '../../components/ui/Modal';
+import { supabase } from '../../config/supabase';
 import { getCityTables, normalizeTableNumber } from '../../utils/cityTables';
 import {
   Play,
@@ -16,7 +17,13 @@ import {
   AlertCircle,
   ArrowRight,
   Volume2,
+  FileCheck,
+  FileText,
+  Ban,
+  AlertTriangle,
+  RotateCcw,
 } from 'lucide-react';
+import type { Application } from '../../types';
 
 export const EmployeeDashboardPage: React.FC = () => {
   const { currentUser } = useAuth();
@@ -28,9 +35,15 @@ export const EmployeeDashboardPage: React.FC = () => {
     updateTokenStatus,
     routeToNextTable,
     updateApplicationStatus,
+    updateDocumentStatus,
+    refreshServices,
   } = useData();
 
-  const [activeCounter, setActiveCounter] = useState<string>('C-1');
+  // Fix 9 & Fix 15: Authoritative counter assigned to employee
+  const [activeCounter, setActiveCounter] = useState<string>(() => {
+    return (currentUser as any)?.counterNumber ? `C-${(currentUser as any).counterNumber}` : 'C-01';
+  });
+
   const [isQueuePaused, setIsQueuePaused] = useState(false);
   const [announcementMsg, setAnnouncementMsg] = useState<string>('');
   const [callAlert, setCallAlert] = useState<string>('');
@@ -39,6 +52,54 @@ export const EmployeeDashboardPage: React.FC = () => {
   const [isNextTableModalOpen, setIsNextTableModalOpen] = useState(false);
   const [selectedNextTable, setSelectedNextTable] = useState('C-2');
   const [isSubmittingNextTable, setIsSubmittingNextTable] = useState(false);
+
+  // Fix 11: Document Verification Modal State
+  const [isVerifyDocsModalOpen, setIsVerifyDocsModalOpen] = useState(false);
+  const [inspectApp, setInspectApp] = useState<Application | null>(null);
+  const [physicalDocChecks, setPhysicalDocChecks] = useState<Record<string, 'OK' | 'NOT OK'>>({});
+  const [verificationError, setVerificationError] = useState<string>('');
+
+  // Requirement 24: Stop Booking Confirmation Modal State
+  const [stopBookingModalOpen, setStopBookingModalOpen] = useState(false);
+  const [serviceToStop, setServiceToStop] = useState<any>(null);
+  const [isStoppingBooking, setIsStoppingBooking] = useState(false);
+
+  // Fetch Authoritative Counter and Service Assignments from DB (Fix 1, Fix 8, Fix 9, Fix 15)
+  useEffect(() => {
+    const fetchOfficerProfile = async () => {
+      if (!currentUser?.id) return;
+      try {
+        const { data: officer } = await supabase
+          .from('officers')
+          .select('counter_number, assigned_service_ids')
+          .eq('user_id', currentUser.id)
+          .maybeSingle();
+
+        if (officer?.counter_number) {
+          setActiveCounter(officer.counter_number);
+        } else {
+          const { data: staff } = await supabase
+            .from('staff_profiles')
+            .select('counter_number, assigned_service_ids')
+            .eq('id', currentUser.id)
+            .maybeSingle();
+          if (staff?.counter_number) {
+            setActiveCounter(staff.counter_number);
+          }
+          if (Array.isArray(staff?.assigned_service_ids) && staff.assigned_service_ids.length > 0) {
+            setSelectedServiceIds(staff.assigned_service_ids);
+          }
+        }
+
+        if (Array.isArray(officer?.assigned_service_ids) && officer.assigned_service_ids.length > 0) {
+          setSelectedServiceIds(officer.assigned_service_ids);
+        }
+      } catch (err) {
+        console.warn('Officer profile fetch note:', err);
+      }
+    };
+    fetchOfficerProfile();
+  }, [currentUser?.id]);
 
   // EMPLOYEE ASSIGNED SERVICES STATE (Saved per user)
   const empStorageKey = currentUser?.id ? `nagrikq_emp_services_${currentUser.id}` : 'nagrikq_emp_services_default';
@@ -53,7 +114,6 @@ export const EmployeeDashboardPage: React.FC = () => {
     } catch {
       // Ignore
     }
-    // Default to all active services on first visit
     return services.map((s) => s.id);
   });
 
@@ -199,6 +259,161 @@ export const EmployeeDashboardPage: React.FC = () => {
     }
   };
 
+  // Fix 11: Document Verification Handlers
+  const handleOpenVerifyDocs = () => {
+    if (!currentCitizen) return;
+    const citizenApp = applications.find(
+      (a) =>
+        a.id === currentCitizen.applicationId ||
+        (a.citizenId === currentCitizen.citizenId &&
+          (a.status === 'SUBMITTED' || a.status === 'UNDER_REVIEW' || a.status === 'COMPLETED' || a.status === 'APPROVED'))
+    );
+    if (citizenApp) {
+      setInspectApp(citizenApp);
+      const initialChecks: Record<string, 'OK' | 'NOT OK'> = {};
+      citizenApp.documents.forEach((d) => {
+        if (d.status === 'VERIFIED') initialChecks[d.id] = 'OK';
+        else if (d.status === 'REJECTED') initialChecks[d.id] = 'NOT OK';
+      });
+      setPhysicalDocChecks(initialChecks);
+    } else {
+      const docs = currentCitizen.submittedDocuments || [];
+      const virtualApp: Application = {
+        id: currentCitizen.id,
+        applicationNumber: `APP-${currentCitizen.tokenNumber}`,
+        citizenId: currentCitizen.citizenId,
+        citizenName: currentCitizen.citizenName,
+        citizenPhone: currentCitizen.citizenPhone,
+        serviceId: currentCitizen.serviceId,
+        serviceName: currentCitizen.serviceName,
+        officeId: currentCitizen.officeId,
+        officeName: currentCitizen.officeName,
+        status: 'UNDER_REVIEW',
+        submittedAt: currentCitizen.issuedAt,
+        documents: docs.map((d: any, idx: number) => ({
+          id: d.id || `doc-${idx}`,
+          requirementId: d.requirementId || `req-${idx}`,
+          requirementName: d.requirementName || d.name || 'Required Certificate',
+          fileUrl: d.fileUrl || '#',
+          fileName: d.fileName || 'document.pdf',
+          status: 'PENDING',
+        })),
+        timeline: [],
+      };
+      setInspectApp(virtualApp);
+      setPhysicalDocChecks({});
+    }
+    setVerificationError('');
+    setIsVerifyDocsModalOpen(true);
+  };
+
+  const handleConfirmVerification = async () => {
+    if (!inspectApp) return;
+    const docs = inspectApp.documents || [];
+    const uncheckedDocs = docs.filter((d) => !physicalDocChecks[d.id]);
+    if (uncheckedDocs.length > 0) {
+      setVerificationError(`Please mark all ${docs.length} documents as OK or NOT OK before confirming.`);
+      return;
+    }
+
+    setVerificationError('');
+    const hasRejected = docs.some((d) => physicalDocChecks[d.id] === 'NOT OK');
+
+    for (const d of docs) {
+      const isOk = physicalDocChecks[d.id] === 'OK';
+      await updateDocumentStatus(inspectApp.id, d.id, isOk ? 'VERIFIED' : 'REJECTED');
+    }
+
+    if (hasRejected) {
+      await updateApplicationStatus(inspectApp.id, 'REJECTED', 'Physical documents rejected during counter inspection.');
+      setAnnouncementMsg(`✕ Document verification failed for ${inspectApp.citizenName}. Records updated.`);
+    } else {
+      await updateApplicationStatus(inspectApp.id, 'APPROVED', 'Physical documents verified and approved at counter.');
+      setAnnouncementMsg(`✓ All physical documents verified & approved for ${inspectApp.citizenName}!`);
+    }
+
+    setIsVerifyDocsModalOpen(false);
+    setTimeout(() => setAnnouncementMsg(''), 6000);
+  };
+
+  // Requirement 24: Stop Booking for Today & Resume Booking for Today
+  const todayDateStr = useMemo(() => {
+    return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+  }, []);
+
+  const handleOpenStopBooking = (service: any) => {
+    setServiceToStop(service);
+    setStopBookingModalOpen(true);
+  };
+
+  const handleConfirmStopBooking = async () => {
+    if (!serviceToStop) return;
+    setIsStoppingBooking(true);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData?.session?.access_token || '';
+      const officeId = (currentUser as any)?.officeId || 'off-001';
+
+      const res = await fetch(`/api/services/${serviceToStop.id}/stop-booking`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          officeId,
+          date: todayDateStr,
+        }),
+      });
+
+      if (res.ok) {
+        setAnnouncementMsg(`✓ Stopped new online bookings for ${serviceToStop.name} for today (${todayDateStr}).`);
+        setStopBookingModalOpen(false);
+        await refreshServices();
+      } else {
+        const errJson = await res.json();
+        alert(errJson?.error?.message || 'Failed to stop booking.');
+      }
+    } catch (err: any) {
+      alert(err.message || 'Error stopping booking');
+    } finally {
+      setIsStoppingBooking(false);
+      setTimeout(() => setAnnouncementMsg(''), 6000);
+    }
+  };
+
+  const handleResumeBooking = async (service: any) => {
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData?.session?.access_token || '';
+      const officeId = (currentUser as any)?.officeId || 'off-001';
+
+      const res = await fetch(`/api/services/${service.id}/resume-booking`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          officeId,
+          date: todayDateStr,
+        }),
+      });
+
+      if (res.ok) {
+        setAnnouncementMsg(`✓ Resumed online bookings for ${service.name} for today.`);
+        await refreshServices();
+      } else {
+        const errJson = await res.json();
+        alert(errJson?.error?.message || 'Failed to resume booking.');
+      }
+    } catch (err: any) {
+      alert(err.message || 'Error resuming booking');
+    } finally {
+      setTimeout(() => setAnnouncementMsg(''), 6000);
+    }
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '28px' }}>
       {/* Officer Counter Header */}
@@ -288,22 +503,19 @@ export const EmployeeDashboardPage: React.FC = () => {
             NOW AT COUNTER {activeCounter}
           </span>
           <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-            <span style={{ fontSize: '0.85rem', color: 'var(--color-neutral-600)', fontWeight: 600 }}>Counter:</span>
-            <select
-              value={activeCounter}
-              onChange={(e) => setActiveCounter(e.target.value)}
+            <span style={{ fontSize: '0.85rem', color: 'var(--color-neutral-600)', fontWeight: 600 }}>Assigned Counter:</span>
+            <span
               style={{
-                padding: '4px 8px',
+                padding: '4px 10px',
                 borderRadius: '6px',
-                border: '1px solid var(--color-neutral-300)',
-                fontWeight: 700,
+                backgroundColor: 'var(--color-primary-100)',
                 color: 'var(--color-primary-900)',
+                fontWeight: 800,
+                fontSize: '0.9rem',
               }}
             >
-              {['C-1', 'C-2', 'C-3', 'C-4', 'C-5', 'C-6'].map((c) => (
-                <option key={c} value={c}>{c}</option>
-              ))}
-            </select>
+              {activeCounter}
+            </span>
             {isQueuePaused ? (
               <Button variant="saffron" size="sm" onClick={() => setIsQueuePaused(false)}>
                 Resume Queue
@@ -342,7 +554,7 @@ export const EmployeeDashboardPage: React.FC = () => {
               <StatusBadge status={currentCitizen.status} />
             </div>
 
-            {/* Officer Action Toolbar - STRICT COMPLETE OR NEXT TABLE */}
+            {/* Officer Action Toolbar - STRICT COMPLETE OR NEXT TABLE OR VERIFY PHYSICAL DOCS */}
             <div style={{ display: 'flex', gap: '14px', flexWrap: 'wrap', alignItems: 'center' }}>
               <Button
                 variant="saffron"
@@ -361,6 +573,15 @@ export const EmployeeDashboardPage: React.FC = () => {
                 style={{ fontWeight: 800, padding: '10px 20px' }}
               >
                 Next Table →
+              </Button>
+              <Button
+                variant="outline"
+                size="md"
+                onClick={handleOpenVerifyDocs}
+                icon={<FileCheck size={18} />}
+                style={{ fontWeight: 700, padding: '10px 18px', borderColor: 'var(--color-primary-600)', color: 'var(--color-primary-800)' }}
+              >
+                Verify Physical Docs
               </Button>
               <Button
                 variant="danger"
@@ -451,6 +672,119 @@ export const EmployeeDashboardPage: React.FC = () => {
           )}
         </Card>
       </div>
+
+      {/* REQUIREMENT 24: EMPLOYEE SERVICES & ONLINE BOOKING CONTROL */}
+      <Card>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>
+          <div>
+            <h3 style={{ fontSize: '1.25rem', color: 'var(--color-primary-900)', margin: 0, fontWeight: 800 }}>
+              Service Desk Operations & Online Booking Control
+            </h3>
+            <span style={{ fontSize: '0.85rem', color: 'var(--color-neutral-600)' }}>
+              Manage online citizen appointments for today ({todayDateStr}). Stopping bookings preserves existing tokens and unblocks automatically tomorrow.
+            </span>
+          </div>
+          <span style={{ fontSize: '0.8rem', fontWeight: 700, backgroundColor: 'var(--color-primary-50)', color: 'var(--color-primary-800)', padding: '4px 10px', borderRadius: '8px', border: '1px solid var(--color-primary-200)' }}>
+            Location: {(currentUser as any)?.officeName || 'Rajkot Jan Seva Kendra'}
+          </span>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '14px' }}>
+          {services.map((srv) => {
+            const isStoppedToday =
+              srv.isBookingStopped ||
+              (Array.isArray(srv.stoppedBookingDates) && srv.stoppedBookingDates.includes(todayDateStr));
+
+            return (
+              <div
+                key={srv.id}
+                style={{
+                  padding: '16px',
+                  borderRadius: '12px',
+                  border: `1.5px solid ${isStoppedToday ? 'var(--color-danger-300, #FCA5A5)' : 'var(--color-neutral-200)'}`,
+                  backgroundColor: isStoppedToday ? '#FEF2F2' : 'var(--color-white)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '12px',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
+                  <div>
+                    <span style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--color-primary-700)' }}>
+                      {srv.code || 'SRV-001'}
+                    </span>
+                    <h4 style={{ margin: '2px 0 0 0', fontSize: '1.05rem', color: 'var(--color-neutral-900)', fontWeight: 700 }}>
+                      {srv.name}
+                    </h4>
+                  </div>
+                  {isStoppedToday ? (
+                    <span
+                      style={{
+                        fontSize: '0.7rem',
+                        fontWeight: 800,
+                        backgroundColor: '#FEE2E2',
+                        color: '#991B1B',
+                        padding: '3px 8px',
+                        borderRadius: '6px',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                      }}
+                    >
+                      <Ban size={12} /> STOPPED TODAY
+                    </span>
+                  ) : (
+                    <span
+                      style={{
+                        fontSize: '0.7rem',
+                        fontWeight: 800,
+                        backgroundColor: '#DCFCE7',
+                        color: '#166534',
+                        padding: '3px 8px',
+                        borderRadius: '6px',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                      }}
+                    >
+                      <CheckCircle size={12} /> BOOKING ACTIVE
+                    </span>
+                  )}
+                </div>
+
+                <div style={{ fontSize: '0.82rem', color: 'var(--color-neutral-600)' }}>
+                  Slot Duration: {srv.slotDurationMinutes || 30} mins • Capacity: {srv.slotCapacity || 3} citizens/slot
+                </div>
+
+                <div style={{ marginTop: 'auto', paddingTop: '8px', borderTop: '1px solid rgba(0,0,0,0.06)' }}>
+                  {isStoppedToday ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleResumeBooking(srv)}
+                      icon={<RotateCcw size={14} />}
+                      style={{ width: '100%', fontWeight: 700, borderColor: '#166534', color: '#166534' }}
+                    >
+                      Resume Booking for Today
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => handleOpenStopBooking(srv)}
+                      icon={<Ban size={14} />}
+                      style={{ width: '100%', fontWeight: 700, borderColor: '#EF4444', color: '#B91C1C' }}
+                    >
+                      Stop Booking for Today
+                    </Button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </Card>
 
       {/* MODAL: DIRECT CITIZEN TO NEXT TABLE */}
       <Modal
@@ -557,6 +891,206 @@ export const EmployeeDashboardPage: React.FC = () => {
           </div>
         </div>
       </Modal>
+
+      {/* FIX 11: DOCUMENT VERIFICATION MODAL */}
+      {inspectApp && (
+        <Modal
+          isOpen={isVerifyDocsModalOpen}
+          onClose={() => setIsVerifyDocsModalOpen(false)}
+          title={`Document Verification — ${inspectApp.citizenName}`}
+          description={`Verify physical hard-copy documents at Counter ${activeCounter} for Application ${inspectApp.applicationNumber}.`}
+          maxWidth="700px"
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+            {verificationError && (
+              <div
+                style={{
+                  padding: '12px 16px',
+                  backgroundColor: '#FEF2F2',
+                  border: '1px solid #FCA5A5',
+                  color: '#991B1B',
+                  borderRadius: '10px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '10px',
+                  fontSize: '0.88rem',
+                  fontWeight: 600,
+                }}
+              >
+                <AlertCircle size={18} />
+                <span>{verificationError}</span>
+              </div>
+            )}
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--color-neutral-800)' }}>
+                Required Service Documents ({inspectApp.documents.length}):
+              </div>
+
+              {inspectApp.documents.length === 0 ? (
+                <div style={{ padding: '16px', backgroundColor: 'var(--color-neutral-50)', borderRadius: '10px', textAlign: 'center', color: 'var(--color-neutral-600)' }}>
+                  No physical documents attached for this application.
+                </div>
+              ) : (
+                inspectApp.documents.map((doc) => {
+                  const check = physicalDocChecks[doc.id];
+                  return (
+                    <div
+                      key={doc.id}
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        padding: '12px 16px',
+                        borderRadius: '10px',
+                        border: `1.5px solid ${check === 'OK' ? '#86EFAC' : check === 'NOT OK' ? '#FCA5A5' : 'var(--color-neutral-200)'}`,
+                        backgroundColor: check === 'OK' ? '#F0FDF4' : check === 'NOT OK' ? '#FEF2F2' : 'var(--color-neutral-50)',
+                        gap: '12px',
+                        flexWrap: 'wrap',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <FileText size={18} color="var(--color-primary-700)" />
+                        <div>
+                          <div style={{ fontWeight: 700, fontSize: '0.92rem', color: 'var(--color-neutral-900)' }}>
+                            {doc.requirementName}
+                          </div>
+                          <span style={{ fontSize: '0.78rem', color: 'var(--color-neutral-500)' }}>
+                            File: {doc.fileName} • {(doc as any).validityPeriod || 'Valid for 3 Years'}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        <Button
+                          size="sm"
+                          variant={check === 'OK' ? 'primary' : 'outline'}
+                          onClick={() => setPhysicalDocChecks((prev) => ({ ...prev, [doc.id]: 'OK' }))}
+                          icon={<CheckCircle size={14} />}
+                          style={{
+                            fontWeight: 700,
+                            backgroundColor: check === 'OK' ? '#16A34A' : undefined,
+                            borderColor: '#16A34A',
+                            color: check === 'OK' ? 'white' : '#16A34A',
+                          }}
+                        >
+                          OK (Verified)
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant={check === 'NOT OK' ? 'danger' : 'outline'}
+                          onClick={() => setPhysicalDocChecks((prev) => ({ ...prev, [doc.id]: 'NOT OK' }))}
+                          icon={<XCircle size={14} />}
+                          style={{
+                            fontWeight: 700,
+                            backgroundColor: check === 'NOT OK' ? '#DC2626' : undefined,
+                            borderColor: '#DC2626',
+                            color: check === 'NOT OK' ? 'white' : '#DC2626',
+                          }}
+                        >
+                          NOT OK (Defective)
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '12px' }}>
+              <Button variant="secondary" onClick={() => setIsVerifyDocsModalOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                onClick={handleConfirmVerification}
+                icon={<FileCheck size={16} />}
+                style={{ fontWeight: 800 }}
+              >
+                Save Verification Decision
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* REQUIREMENT 24: STOP BOOKING CONFIRMATION DIALOG */}
+      {serviceToStop && (
+        <Modal
+          isOpen={stopBookingModalOpen}
+          onClose={() => setStopBookingModalOpen(false)}
+          title={`Stop Online Booking for Today?`}
+          description={`Confirmation required to disable new citizen slot reservations.`}
+          maxWidth="560px"
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            <div
+              style={{
+                padding: '16px',
+                backgroundColor: '#FEF2F2',
+                border: '1.5px solid #FCA5A5',
+                borderRadius: '12px',
+                display: 'flex',
+                gap: '12px',
+                alignItems: 'flex-start',
+              }}
+            >
+              <AlertTriangle size={24} color="#DC2626" style={{ flexShrink: 0, marginTop: '2px' }} />
+              <div>
+                <div style={{ fontWeight: 800, color: '#991B1B', fontSize: '1rem' }}>
+                  Important Operational Notice
+                </div>
+                <div style={{ fontSize: '0.85rem', color: '#7F1D1D', marginTop: '4px', lineHeight: '1.5' }}>
+                  Stopping bookings applies strictly to the current local calendar day.
+                </div>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', backgroundColor: 'var(--color-neutral-50)', padding: '16px', borderRadius: '12px', border: '1px solid var(--color-neutral-200)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.9rem' }}>
+                <span style={{ color: 'var(--color-neutral-600)', fontWeight: 600 }}>Affected Service:</span>
+                <span style={{ fontWeight: 800, color: 'var(--color-primary-900)' }}>{serviceToStop.name}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.9rem' }}>
+                <span style={{ color: 'var(--color-neutral-600)', fontWeight: 600 }}>Affected Office/Location:</span>
+                <span style={{ fontWeight: 700, color: 'var(--color-neutral-800)' }}>
+                  {(currentUser as any)?.officeName || 'Rajkot Jan Seva Kendra'}
+                </span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.9rem' }}>
+                <span style={{ color: 'var(--color-neutral-600)', fontWeight: 600 }}>Local Calendar Date:</span>
+                <span style={{ fontWeight: 800, color: '#B91C1C' }}>{todayDateStr}</span>
+              </div>
+            </div>
+
+            <div style={{ fontSize: '0.86rem', color: 'var(--color-neutral-700)', lineHeight: '1.6' }}>
+              <strong>Consequences of stopping new online bookings:</strong>
+              <ul style={{ paddingLeft: '20px', margin: '6px 0 0 0' }}>
+                <li>Prevent new online citizen slot bookings for this service for the remainder of today.</li>
+                <li><strong>Preserve all existing bookings:</strong> citizens who already hold tokens or appointments today remain completely unaffected.</li>
+                <li>Tokens are not cancelled, deleted, or invalidated.</li>
+                <li>Bookings for future calendar dates remain fully open and bookable.</li>
+                <li>Online booking will automatically resume tomorrow when the local calendar date advances.</li>
+              </ul>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '8px' }}>
+              <Button variant="secondary" onClick={() => setStopBookingModalOpen(false)} disabled={isStoppingBooking}>
+                Cancel
+              </Button>
+              <Button
+                variant="danger"
+                onClick={handleConfirmStopBooking}
+                disabled={isStoppingBooking}
+                icon={<Ban size={16} />}
+                style={{ fontWeight: 800 }}
+              >
+                {isStoppingBooking ? 'Stopping...' : 'Confirm & Stop Booking for Today'}
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 };

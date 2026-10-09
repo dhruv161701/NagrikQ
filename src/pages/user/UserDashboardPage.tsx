@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
 import { useUI } from '../../context/UIContext';
+import { supabase } from '../../config/supabase';
 import { QueueTrackerCard } from '../../components/queue/QueueTrackerCard';
 import { GuidedTourModal } from '../../components/onboarding/GuidedTourModal';
 import { Card } from '../../components/ui/Card';
@@ -42,37 +43,53 @@ export const UserDashboardPage: React.FC = () => {
   const applications = getUserApplications(userId);
   const activeApplication = applications.find((a) => a.status === 'UNDER_REVIEW' || a.status === 'SUBMITTED');
 
-  // Document Expiry Check (15-day alert rule)
-  const expiringDocs = useMemo(() => {
-    const storageKey = currentUser?.id ? `nagrikq_vault_${currentUser.id}` : 'nagrikq_vault_guest';
-    let docs: any[] = [];
-    try {
-      const saved = localStorage.getItem(storageKey);
-      if (saved) {
-        docs = JSON.parse(saved);
-      } else {
-        const tenDaysFromNow = new Date();
-        tenDaysFromNow.setDate(tenDaysFromNow.getDate() + 10);
-        docs = [
-          {
-            id: 'vault-init-income',
-            name: 'Income Certificate',
-            expiryDate: tenDaysFromNow.toISOString().split('T')[0],
-            validityPeriod: 'Valid for 3 Years',
-          },
-        ];
-      }
-    } catch {
-      docs = [];
-    }
+  // Real database document fetch for expiry check (Fix 5 & Fix 17)
+  const [realDocs, setRealDocs] = useState<any[]>([]);
 
-    return docs
+  useEffect(() => {
+    const fetchUserDocs = async () => {
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const token = sessionData?.session?.access_token;
+        if (token) {
+          const res = await fetch('/api/documents', {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (res.ok) {
+            const json = await res.json();
+            if (json.success && Array.isArray(json.data)) {
+              setRealDocs(json.data);
+              return;
+            }
+          }
+        }
+
+        if (currentUser?.id) {
+          const { data, error } = await supabase
+            .from('user_documents')
+            .select('*')
+            .eq('user_id', currentUser.id);
+          if (!error && data) {
+            setRealDocs(data);
+          }
+        }
+      } catch (err) {
+        console.warn('Dashboard docs fetch notice:', err);
+      }
+    };
+    fetchUserDocs();
+  }, [currentUser?.id]);
+
+  // Document Expiry Check (15-day alert rule) - strictly real database records
+  const expiringDocs = useMemo(() => {
+    return realDocs
       .map((d) => ({
         ...d,
-        daysRemaining: getDaysRemaining(d.expiryDate),
+        name: d.name || d.document_name,
+        daysRemaining: getDaysRemaining(d.expiry_date || d.expiryDate),
       }))
       .filter((d) => d.daysRemaining !== null && d.daysRemaining <= 15 && d.daysRemaining >= 0);
-  }, [currentUser]);
+  }, [realDocs]);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '28px' }}>

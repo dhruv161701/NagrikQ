@@ -148,7 +148,7 @@ export const RoleSwitcherBar: React.FC = () => {
               gap: '3px',
             }}
           >
-            <Zap size={10} /> Modern
+            <Zap size={10} /> A-
           </button>
           <button
             onClick={() => setUIMode('simple')}
@@ -163,7 +163,7 @@ export const RoleSwitcherBar: React.FC = () => {
               cursor: 'pointer',
             }}
           >
-            Simple
+            A+
           </button>
         </div>
 

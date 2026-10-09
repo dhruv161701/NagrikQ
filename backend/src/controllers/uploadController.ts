@@ -1,6 +1,7 @@
 import { Response } from 'express';
 import crypto from 'crypto';
 import { AuthenticatedRequest } from '../types';
+import { supabaseAdmin } from '../config/supabase';
 
 const CLOUDINARY_CLOUD_NAME = process.env.CLOUDINARY_CLOUD_NAME || 'dx3tt1c5v';
 const CLOUDINARY_API_KEY = process.env.CLOUDINARY_API_KEY || '452682556522892';
@@ -217,6 +218,88 @@ export const verifyAndUploadDocument = async (
       success: false,
       error: { code: 'SERVER_ERROR', message: err.message || 'Document verification pipeline error.' },
     });
+  }
+};
+
+export const getUserDocuments = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) {
+      res.status(401).json({ success: false, error: { code: 'UNAUTHORIZED', message: 'Authentication required' } });
+      return;
+    }
+    const { data: docs, error } = await supabaseAdmin
+      .from('documents')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      res.status(500).json({ success: false, error: { code: 'DB_ERROR', message: error.message } });
+      return;
+    }
+
+    res.json({ success: true, data: docs || [] });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: err.message } });
+  }
+};
+
+export const saveUserDocument = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) {
+      res.status(401).json({ success: false, error: { code: 'UNAUTHORIZED', message: 'Authentication required' } });
+      return;
+    }
+    const { requirementName, fileName, storagePath, verificationStatus, notes } = req.body;
+    const { data: doc, error } = await supabaseAdmin
+      .from('documents')
+      .insert({
+        user_id: userId,
+        requirement_name: requirementName || 'Uploaded Document',
+        file_name: fileName || 'document.pdf',
+        storage_path: storagePath || '#',
+        verification_status: verificationStatus || 'PENDING',
+        notes: notes || null,
+      })
+      .select('*')
+      .single();
+
+    if (error) {
+      res.status(500).json({ success: false, error: { code: 'DB_ERROR', message: error.message } });
+      return;
+    }
+    res.status(201).json({ success: true, data: doc });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: err.message } });
+  }
+};
+
+export const deleteUserDocument = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const userId = req.user?.id;
+    const { data: doc } = await supabaseAdmin
+      .from('documents')
+      .select('*')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (!doc) {
+      res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Document not found' } });
+      return;
+    }
+
+    if (req.user?.role === 'citizen' && doc.user_id !== userId) {
+      res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Unauthorized to delete this document' } });
+      return;
+    }
+
+    await supabaseAdmin.from('documents').delete().eq('id', id);
+    res.json({ success: true, message: 'Document deleted successfully from vault.' });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: err.message } });
   }
 };
 

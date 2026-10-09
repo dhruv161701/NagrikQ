@@ -105,6 +105,8 @@ const mapDBServiceToService = (item: any): Service => {
     slotCapacity: slotCap,
     counterPath: item.counter_path || defaultPath,
     documentValidity: validity,
+    stoppedBookingDates: item.stopped_booking_dates || item.stoppedBookingDates || [],
+    isBookingStopped: Array.isArray(item.stopped_booking_dates) && item.stopped_booking_dates.includes(new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' })),
   };
 };
 
@@ -270,7 +272,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const json = await res.json();
         if (json.success && Array.isArray(json.data) && json.data.length > 0) {
           const mapped = json.data.map(mapDBAppToApplication);
-          setDbApplications(mapped);
+          const deduped: Application[] = Array.from(new Map(mapped.map((a: Application) => [a.id, a])).values()) as Application[];
+          setDbApplications(deduped);
           return;
         }
       }
@@ -281,7 +284,9 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .order('submitted_at', { ascending: false });
 
       if (!error && data && data.length > 0) {
-        setDbApplications(data.map(mapDBAppToApplication));
+        const mapped = data.map(mapDBAppToApplication);
+        const deduped: Application[] = Array.from(new Map(mapped.map((a: Application) => [a.id, a])).values()) as Application[];
+        setDbApplications(deduped);
       }
     } catch (err) {
       console.warn('[DataContext] Failed to fetch applications:', err);

@@ -14,6 +14,7 @@ import {
   Plus,
   Trash2,
   AlertTriangle,
+  AlertCircle,
   RotateCcw,
   CheckCircle2,
   FolderOpen,
@@ -23,6 +24,7 @@ import {
   ShieldCheck,
   RefreshCw,
 } from 'lucide-react';
+import { supabase } from '../../config/supabase';
 import { useNavigate } from 'react-router-dom';
 import {
   verifyAndUploadDocumentWithAI,
@@ -121,26 +123,82 @@ export const UserDocumentsPage: React.FC = () => {
   // DELETE CONFIRMATION STATE
   const [deletingDoc, setDeletingDoc] = useState<VaultDoc | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [fetchError, setFetchError] = useState<string>('');
+  const [documents, setDocuments] = useState<VaultDoc[]>([]);
 
-  const storageKey = currentUser?.id ? `nagrikq_vault_${currentUser.id}` : 'nagrikq_vault_guest';
-
-  const [documents, setDocuments] = useState<VaultDoc[]>(() => {
+  const fetchUserDocuments = async () => {
+    setLoading(true);
+    setFetchError('');
     try {
-      const saved = localStorage.getItem(storageKey);
-      if (saved) return JSON.parse(saved);
-    } catch {
-      // Ignore
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData?.session?.access_token;
+      if (token) {
+        const res = await fetch('/api/documents', {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.ok) {
+          const json = await res.json();
+          if (json.success && Array.isArray(json.data)) {
+            const mapped: VaultDoc[] = json.data.map((d: any) => ({
+              id: d.id,
+              name: d.requirement_name || 'Verified Certificate',
+              type: d.requirement_name || 'General Document',
+              fileName: d.file_name || 'document.pdf',
+              fileSize: d.file_size_bytes ? `${(d.file_size_bytes / (1024 * 1024)).toFixed(1)} MB` : '1.2 MB',
+              fileUrl: d.storage_path,
+              status: d.verification_status === 'VERIFIED' ? 'VERIFIED' : 'SUBMITTED',
+              uploadedAt: new Date(d.created_at || Date.now()).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+              validityPeriod: d.validity_period || (d.requirement_name?.includes('Aadhaar') ? 'Lifetime Validity' : 'Valid for 3 Years'),
+              expiryDate: d.expiry_date || (d.requirement_name?.includes('Aadhaar') ? 'Lifetime Validity' : '2028-01-01'),
+              documentNumber: d.document_number,
+            }));
+            setDocuments(mapped);
+            setLoading(false);
+            return;
+          }
+        }
+      }
+
+      // Supabase direct query fallback
+      if (currentUser?.id) {
+        const { data: directDocs, error } = await supabase
+          .from('documents')
+          .select('*')
+          .eq('user_id', currentUser.id)
+          .order('created_at', { ascending: false });
+
+        if (!error && directDocs) {
+          const mapped: VaultDoc[] = directDocs.map((d: any) => ({
+            id: d.id,
+            name: d.requirement_name || 'Verified Certificate',
+            type: d.requirement_name || 'General Document',
+            fileName: d.file_name || 'document.pdf',
+            fileSize: d.file_size_bytes ? `${(d.file_size_bytes / (1024 * 1024)).toFixed(1)} MB` : '1.2 MB',
+            fileUrl: d.storage_path,
+            status: d.verification_status === 'VERIFIED' ? 'VERIFIED' : 'SUBMITTED',
+            uploadedAt: new Date(d.created_at || Date.now()).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+            validityPeriod: d.validity_period || (d.requirement_name?.includes('Aadhaar') ? 'Lifetime Validity' : 'Valid for 3 Years'),
+            expiryDate: d.expiry_date || (d.requirement_name?.includes('Aadhaar') ? 'Lifetime Validity' : '2028-01-01'),
+            documentNumber: d.document_number,
+          }));
+          setDocuments(mapped);
+          setLoading(false);
+          return;
+        }
+      }
+      setDocuments([]);
+    } catch (err: any) {
+      console.warn('[UserDocumentsPage] Failed to fetch documents:', err);
+      setFetchError('Failed to load documents from database.');
+    } finally {
+      setLoading(false);
     }
-    return [];
-  });
+  };
 
   useEffect(() => {
-    try {
-      localStorage.setItem(storageKey, JSON.stringify(documents));
-    } catch {
-      // Ignore
-    }
-  }, [documents, storageKey]);
+    fetchUserDocuments();
+  }, [currentUser?.id]);
 
   // Check for any document expiring in <= 15 days
   const expiringSoonDocs = useMemo(() => {
@@ -230,10 +288,35 @@ export const UserDocumentsPage: React.FC = () => {
         documentNumber: extracted.documentNumber ? `XXXX-XXXX-${extracted.documentNumber.slice(-4)}` : undefined,
       };
 
+      // Persist to database
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const token = sessionData?.session?.access_token;
+        if (token) {
+          await fetch('/api/documents', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+              requirementName: selectedCategory,
+              fileName: selectedFile.name,
+              storagePath: uploadResult.secureUrl,
+              verificationStatus: uploadResult.verificationStatus === 'VERIFIED' ? 'VERIFIED' : 'PENDING',
+              fileSize: selectedFile.size,
+            }),
+          });
+        }
+      } catch (dbErr) {
+        console.warn('[UserDocumentsPage] Database save note:', dbErr);
+      }
+
       setDocuments((prev) => [newDoc, ...prev]);
       setSelectedFile(null);
       setFileError('');
       setIsUploadModalOpen(false);
+      fetchUserDocuments();
     } catch (err: any) {
       clearInterval(stepInterval);
       console.error('[Document Verification Error]', err);
@@ -258,13 +341,22 @@ export const UserDocumentsPage: React.FC = () => {
     if (!deletingDoc) return;
     setIsDeleting(true);
     try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData?.session?.access_token;
+      if (token) {
+        await fetch(`/api/documents/${deletingDoc.id}`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${token}` },
+        });
+      }
+
       if (deletingDoc.cloudinaryPublicId) {
         await deleteCloudinaryDocument(deletingDoc.cloudinaryPublicId);
       }
       setDocuments((prev) => prev.filter((d) => d.id !== deletingDoc.id));
       setDeletingDoc(null);
     } catch (err) {
-      console.warn('[Cloudinary Delete Note]', err);
+      console.warn('[Delete Document Error]', err);
       setDocuments((prev) => prev.filter((d) => d.id !== deletingDoc.id));
       setDeletingDoc(null);
     } finally {
@@ -350,8 +442,34 @@ export const UserDocumentsPage: React.FC = () => {
         </div>
       )}
 
+      {/* Fetch Error Banner */}
+      {fetchError && (
+        <div
+          style={{
+            backgroundColor: 'var(--color-danger-50)',
+            border: '1px solid var(--color-danger-300)',
+            color: 'var(--color-danger-800)',
+            padding: '12px 18px',
+            borderRadius: '10px',
+            marginBottom: '20px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '10px',
+            fontWeight: 600,
+          }}
+        >
+          <AlertCircle size={20} color="var(--color-danger-600)" />
+          <span>{fetchError}</span>
+        </div>
+      )}
+
       {/* Vault Grid */}
-      {documents.length === 0 ? (
+      {loading ? (
+        <div style={{ padding: '60px 20px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '14px' }}>
+          <Loader2 size={36} className="spin" color="var(--color-primary-700)" />
+          <p style={{ color: 'var(--color-neutral-600)', fontWeight: 600 }}>Loading verified vault documents...</p>
+        </div>
+      ) : documents.length === 0 ? (
         <EmptyState
           icon={<FolderOpen size={48} />}
           title="Your Vault is Empty"

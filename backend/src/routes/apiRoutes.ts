@@ -7,6 +7,8 @@ import {
   getOffices,
   getLocationAwareServices,
   updateServiceSlots,
+  stopBookingToday,
+  resumeBookingToday,
 } from '../controllers/serviceController';
 import {
   createApplication,
@@ -61,6 +63,9 @@ import {
   downloadFromCloudinary,
   deleteFromCloudinary,
   verifyAndUploadDocument,
+  getUserDocuments,
+  saveUserDocument,
+  deleteUserDocument,
 } from '../controllers/uploadController';
 import { askRagQuestion } from '../controllers/aiController';
 import {
@@ -122,13 +127,22 @@ router.get('/upload/cloudinary/download', downloadFromCloudinary);
 router.post('/upload/cloudinary/download', downloadFromCloudinary);
 router.post('/upload/cloudinary/delete', deleteFromCloudinary);
 
+// DOCUMENT VAULT ROUTES (Fix 5, Fix 17)
+router.get('/documents', authenticateToken, getUserDocuments);
+router.post('/documents', authenticateToken, saveUserDocument);
+router.delete('/documents/:id', authenticateToken, deleteUserDocument);
+
+// SERVICE BOOKING CONTROL (Requirement 21, 24)
+router.patch('/services/:id/slots', authenticateToken, requireRole('admin', 'superadmin'), updateServiceSlots);
+router.post('/services/:id/stop-booking', authenticateToken, requireRole('employee', 'admin', 'superadmin'), stopBookingToday);
+router.post('/services/:id/resume-booking', authenticateToken, requireRole('employee', 'admin', 'superadmin'), resumeBookingToday);
+
 // ADMIN ROUTES
 router.post('/admin/employees', authenticateToken, requireRole('admin', 'superadmin'), createEmployeeUser);
 router.get('/admin/employees', authenticateToken, requireRole('admin', 'superadmin'), getEmployeesList);
 router.patch('/admin/employees/:id', authenticateToken, requireRole('admin', 'superadmin'), updateEmployeeUser);
 router.delete('/admin/employees/:id', authenticateToken, requireRole('admin', 'superadmin'), deleteEmployeeUser);
 router.post('/admin/office/setup', authenticateToken, requireRole('admin', 'superadmin'), setupOfficeConfig);
-router.patch('/services/:id/slots', authenticateToken, requireRole('admin', 'superadmin'), updateServiceSlots);
 router.post('/change-requests', authenticateToken, requireRole('admin', 'superadmin'), createChangeRequest);
 router.get('/change-requests', authenticateToken, requireRole('admin', 'superadmin'), getChangeRequests);
 router.get('/audit-logs', authenticateToken, requireRole('admin', 'superadmin'), getAuditLogs);

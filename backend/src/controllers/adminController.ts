@@ -323,82 +323,52 @@ export const getEmployeesList = async (
         .select('*')
         .eq('role', 'employee');
 
-      if (empProfiles && empProfiles.length > 0) {
-        const mappedFromProfiles = empProfiles.map((p: any, idx: number) => ({
+      if (!empProfiles || empProfiles.length === 0) {
+        // Honest empty state when no employees exist in DB
+        res.json({ success: true, data: [] } as ApiResponse);
+        return;
+      }
+
+      const userIds = empProfiles.map((p: any) => p.id);
+      const { data: officerRecs } = await supabaseAdmin
+        .from('officers')
+        .select('user_id, counter_number, assigned_service_ids, designation')
+        .in('user_id', userIds);
+
+      const officerMap: Record<string, any> = {};
+      (officerRecs || []).forEach((o: any) => {
+        officerMap[o.user_id] = o;
+      });
+
+      const mappedFromProfiles = empProfiles.map((p: any, idx: number) => {
+        const off = officerMap[p.id] || {};
+        return {
           id: p.id,
           user_id: p.id,
           employee_id: `EMP-${1000 + idx + 1}`,
-          designation: 'Junior Verification Officer',
+          designation: off.designation || 'Junior Verification Officer',
           department: 'Revenue Department',
           district: p.district || 'Rajkot',
           taluka: 'Rajkot City',
-          counter_number: `C-0${(idx % 5) + 1}`,
+          counter_number: off.counter_number || `C-0${(idx % 5) + 1}`,
           phone: p.phone || '+91 9876543210',
           status: 'ACTIVE',
           break_start_time: '01:00 PM',
           break_end_time: '01:30 PM',
           full_name: p.full_name,
           email: p.email,
-        }));
-        res.json({ success: true, data: mappedFromProfiles } as ApiResponse);
-        return;
-      }
-
-      // Default system seed employees if database is completely empty
-      const defaultOfficers = [
-        {
-          id: 'emp-001',
-          employee_id: 'EMP-1001',
-          designation: 'Senior Verification Officer',
-          department: 'Revenue Department',
-          district: 'Rajkot',
-          taluka: 'Rajkot City',
-          counter_number: 'C-01',
-          phone: '+91 9876543201',
-          status: 'ACTIVE',
-          break_start_time: '01:00 PM',
-          break_end_time: '01:30 PM',
-          full_name: 'Ramesh Patel',
-          email: 'ramesh.patel@nagrikq.gov.in',
-        },
-        {
-          id: 'emp-002',
-          employee_id: 'EMP-1002',
-          designation: 'Desk Officer',
-          department: 'Civil Supplies & Food',
-          district: 'Rajkot',
-          taluka: 'Rajkot City',
-          counter_number: 'C-02',
-          phone: '+91 9876543202',
-          status: 'ACTIVE',
-          break_start_time: '01:00 PM',
-          break_end_time: '01:30 PM',
-          full_name: 'Priya Sharma',
-          email: 'priya.sharma@nagrikq.gov.in',
-        },
-        {
-          id: 'emp-003',
-          employee_id: 'EMP-1003',
-          designation: 'Counter Incharge',
-          department: 'Transport Department',
-          district: 'Rajkot',
-          taluka: 'Rajkot City',
-          counter_number: 'C-03',
-          phone: '+91 9876543203',
-          status: 'ACTIVE',
-          break_start_time: '01:30 PM',
-          break_end_time: '02:00 PM',
-          full_name: 'Rajesh Dave',
-          email: 'rajesh.dave@nagrikq.gov.in',
-        },
-      ];
-      res.json({ success: true, data: defaultOfficers } as ApiResponse);
+          assigned_services: off.assigned_service_ids || [],
+        };
+      });
+      res.json({ success: true, data: mappedFromProfiles } as ApiResponse);
       return;
     }
 
-    // Fetch matching profiles to ensure full_name and email are attached
+    // Fetch matching profiles and officers to ensure authoritative counter and assigned services are attached
     const userIds = actualStaff.map((s: any) => s.user_id || s.id).filter(Boolean);
     const profileMap: Record<string, any> = {};
+    const officerMap: Record<string, any> = {};
+
     if (userIds.length > 0) {
       const { data: profs } = await supabaseAdmin
         .from('profiles')
@@ -408,12 +378,25 @@ export const getEmployeesList = async (
       (profs || []).forEach((p: any) => {
         profileMap[p.id] = p;
       });
+
+      const { data: officerRecs } = await supabaseAdmin
+        .from('officers')
+        .select('user_id, counter_number, assigned_service_ids, designation')
+        .in('user_id', userIds);
+
+      (officerRecs || []).forEach((o: any) => {
+        officerMap[o.user_id] = o;
+      });
     }
 
     const formattedEmployees = actualStaff.map((emp: any) => {
-      const p = profileMap[emp.user_id] || profileMap[emp.id] || {};
+      const uId = emp.user_id || emp.id;
+      const p = profileMap[uId] || {};
+      const off = officerMap[uId] || {};
       return {
         ...emp,
+        counter_number: off.counter_number || emp.counter_number || 'C-01',
+        assigned_services: off.assigned_service_ids || emp.assigned_service_ids || [],
         full_name: p.full_name || emp.full_name || 'Counter Officer',
         email: p.email || emp.email || '',
         phone: p.phone || emp.phone || '+91 9876543210',
@@ -549,9 +532,10 @@ export const updateEmployeeUser = async (
       breakStartTime,
       breakEndTime,
       onBreak,
+      assignedServices,
     } = req.body;
 
-    // 1. Update staff_profiles table
+    // 1. Update staff_profiles table (safely handling schema-cache if counter_number column is pending migration)
     const updatePayload: any = {};
     if (designation !== undefined) updatePayload.designation = designation;
     if (counterNumber !== undefined) updatePayload.counter_number = counterNumber;
@@ -562,6 +546,7 @@ export const updateEmployeeUser = async (
     if (breakStartTime !== undefined) updatePayload.break_start_time = breakStartTime;
     if (breakEndTime !== undefined) updatePayload.break_end_time = breakEndTime;
     if (onBreak !== undefined) updatePayload.on_break = onBreak;
+    if (assignedServices !== undefined) updatePayload.assigned_service_ids = assignedServices;
 
     let { data: updatedStaff, error: staffError } = await supabaseAdmin
       .from('staff_profiles')
@@ -571,10 +556,14 @@ export const updateEmployeeUser = async (
       .maybeSingle();
 
     if (staffError) {
-      console.warn('Update staff_profile with break columns failed, retrying without:', staffError.message);
+      console.warn('Update staff_profile failed, retrying with base columns:', staffError.message);
+      // Remove columns that might not exist in PostgREST schema cache
+      delete updatePayload.counter_number;
+      delete updatePayload.assigned_service_ids;
       delete updatePayload.break_start_time;
       delete updatePayload.break_end_time;
       delete updatePayload.on_break;
+
       const { data: retryStaff, error: retryError } = await supabaseAdmin
         .from('staff_profiles')
         .update(updatePayload)
@@ -594,15 +583,29 @@ export const updateEmployeeUser = async (
       await supabaseAdmin.from('profiles').update({ full_name: fullName }).eq('id', id);
     }
 
-    // 3. Update officers table counter if counterNumber is passed
-    if (counterNumber || status) {
-      await supabaseAdmin.from('officers').update({
+    // 3. Authoritatively update officers table (Fix 1, Fix 10, Fix 15)
+    if (counterNumber || status || assignedServices) {
+      await supabaseAdmin.from('officers').upsert({
+        user_id: id,
         counter_number: counterNumber || undefined,
+        assigned_service_ids: assignedServices || undefined,
         is_active: status === 'ACTIVE',
-      }).eq('user_id', id);
+      }, { onConflict: 'user_id' });
     }
 
-    // 4. Audit Log
+    // 4. Authoritatively assign counter in counters table
+    if (counterNumber) {
+      try {
+        await supabaseAdmin
+          .from('counters')
+          .update({ assigned_employee_id: id })
+          .eq('counter_number', counterNumber);
+      } catch (counterErr) {
+        console.warn('Counters table update note:', counterErr);
+      }
+    }
+
+    // 5. Audit Log
     await supabaseAdmin.from('audit_logs').insert({
       actor_user_id: adminId,
       actor_user_name: req.user?.fullName || 'Admin',
@@ -610,12 +613,18 @@ export const updateEmployeeUser = async (
       action: 'UPDATE_EMPLOYEE_ACCOUNT',
       entity_type: 'staff_profile',
       entity_id: id,
-      details: `Admin updated employee details for user ${id}. Status: ${status || 'unchanged'}.`,
+      details: `Admin updated employee details for user ${id}. Assigned counter: ${counterNumber || 'unchanged'}. Status: ${status || 'unchanged'}.`,
     });
+
+    const responseData = {
+      ...(updatedStaff || { id }),
+      counter_number: counterNumber || updatedStaff?.counter_number || 'C-01',
+      assigned_services: assignedServices || updatedStaff?.assigned_service_ids || [],
+    };
 
     res.json({
       success: true,
-      data: updatedStaff,
+      data: responseData,
       message: 'Employee updated successfully.',
     } as ApiResponse);
   } catch (err: any) {

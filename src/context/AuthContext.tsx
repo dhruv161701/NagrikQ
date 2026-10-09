@@ -144,8 +144,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     );
 
+    // Proactive background session refresh heartbeat to keep super admin and officer sessions active (Fix 3)
+    const refreshHeartbeat = setInterval(async () => {
+      try {
+        const { data } = await supabase.auth.getSession();
+        if (data?.session) {
+          const expiresAt = data.session.expires_at || 0;
+          const nowSeconds = Math.floor(Date.now() / 1000);
+          if (expiresAt - nowSeconds < 600) {
+            await supabase.auth.refreshSession();
+          }
+        }
+      } catch (err) {
+        console.warn('[AUTH] Session refresh heartbeat notice:', err);
+      }
+    }, 60 * 1000);
+
     return () => {
       isMounted = false;
+      clearInterval(refreshHeartbeat);
       authListener.subscription.unsubscribe();
     };
   }, []);

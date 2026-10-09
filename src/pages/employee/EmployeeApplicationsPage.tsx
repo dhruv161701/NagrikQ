@@ -75,6 +75,7 @@ export const EmployeeApplicationsPage: React.FC = () => {
   }, [services, empStorageKey]);
 
   const [onlyAssignedFilter, setOnlyAssignedFilter] = useState(true);
+  const [statusFilter, setStatusFilter] = useState<'ALL' | 'PENDING' | 'COMPLETED' | 'REJECTED'>('ALL');
   const [showServiceConfig, setShowServiceConfig] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [queueActionBanner, setQueueActionBanner] = useState<string>('');
@@ -107,17 +108,40 @@ export const EmployeeApplicationsPage: React.FC = () => {
     localStorage.setItem(empStorageKey, JSON.stringify([]));
   };
 
-  // Filter applications strictly by assigned services (all status filters removed)
+  // Fix 12: Deduplicate applications to eliminate duplicate application rows
+  // Fix 14: Filter employee applications by relevant statuses; do not display future queue entries as completed
   const visibleApplications = useMemo(() => {
-    return applications.filter((app) => {
+    // Deduplicate applications by ID and applicationNumber
+    const uniqueMap = new Map<string, Application>();
+    for (const app of applications) {
+      if (!uniqueMap.has(app.id)) {
+        uniqueMap.set(app.id, app);
+      }
+    }
+    const distinctList = Array.from(uniqueMap.values());
+
+    return distinctList.filter((app) => {
+      // 1. Filter by officer assigned services (Fix 8)
       if (onlyAssignedFilter && selectedServiceIds.length > 0) {
         if (!selectedServiceIds.includes(app.serviceId)) return false;
       } else if (onlyAssignedFilter && selectedServiceIds.length === 0) {
         return false;
       }
+
+      // 2. Filter by status (Fix 14)
+      if (statusFilter === 'PENDING') {
+        return app.status === 'SUBMITTED' || app.status === 'UNDER_REVIEW';
+      }
+      if (statusFilter === 'COMPLETED') {
+        return app.status === 'APPROVED' || app.status === 'COMPLETED';
+      }
+      if (statusFilter === 'REJECTED') {
+        return app.status === 'REJECTED';
+      }
+
       return true;
     });
-  }, [applications, onlyAssignedFilter, selectedServiceIds]);
+  }, [applications, onlyAssignedFilter, selectedServiceIds, statusFilter]);
 
   // Keep inspectApp synced if applications update in DataContext
   useEffect(() => {
@@ -511,7 +535,27 @@ export const EmployeeApplicationsPage: React.FC = () => {
             />
             Show only my assigned services ({selectedServiceIds.length} active)
           </label>
+        </div>
 
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+          {(['ALL', 'PENDING', 'COMPLETED', 'REJECTED'] as const).map((st) => (
+            <button
+              key={st}
+              onClick={() => setStatusFilter(st)}
+              style={{
+                padding: '4px 10px',
+                borderRadius: '6px',
+                border: '1px solid var(--color-neutral-300)',
+                backgroundColor: statusFilter === st ? 'var(--color-primary-700)' : 'var(--color-white)',
+                color: statusFilter === st ? 'white' : 'var(--color-neutral-700)',
+                fontWeight: 700,
+                fontSize: '0.8rem',
+                cursor: 'pointer',
+              }}
+            >
+              {st === 'ALL' ? 'All' : st === 'PENDING' ? 'Pending Review' : st === 'COMPLETED' ? 'Completed / Approved' : 'Rejected'}
+            </button>
+          ))}
         </div>
 
         <div style={{ fontSize: '0.85rem', color: 'var(--color-neutral-500)', fontWeight: 600 }}>
@@ -542,7 +586,7 @@ export const EmployeeApplicationsPage: React.FC = () => {
             description={
               onlyAssignedFilter && selectedServiceIds.length === 0
                 ? 'Please select at least one service above to view citizen applications.'
-                : 'There are currently no citizen applications for your assigned services.'
+                : 'There are currently no citizen applications matching your filters.'
             }
             actionText={onlyAssignedFilter ? 'View All Office Applications' : undefined}
             onAction={onlyAssignedFilter ? () => setOnlyAssignedFilter(false) : undefined}
@@ -552,7 +596,7 @@ export const EmployeeApplicationsPage: React.FC = () => {
             {visibleApplications.map((app) => {
               // Linked token if present
               const linkedToken = queueTokens.find(
-                (q) => q.applicationId === app.id || q.citizenId === app.citizenId
+                (q) => q.applicationId === app.id || (q.citizenId === app.citizenId && q.serviceId === app.serviceId)
               );
               const displayTokenId = linkedToken?.tokenNumber || app.applicationNumber;
 
@@ -639,25 +683,66 @@ export const EmployeeApplicationsPage: React.FC = () => {
                     <StatusBadge status={app.status} />
                   </div>
 
-                  {/* Check Physical Docs Action Button */}
+                  {/* Check Physical Docs Action Button - Preserved after turn completion (Fix 13) */}
                   <div>
-                    {app.status === 'APPROVED' || app.status === 'REJECTED' || app.status === 'COMPLETED' ? (
-                      <span
-                        style={{
-                          fontSize: '12px',
-                          fontWeight: 700,
-                          color: 'var(--color-success-800)',
-                          backgroundColor: 'var(--color-success-50)',
-                          padding: '6px 14px',
-                          borderRadius: '6px',
-                          border: '1px solid var(--color-success-300)',
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '4px',
-                        }}
-                      >
-                        ✓ Processing Complete
-                      </span>
+                    {app.status === 'APPROVED' || app.status === 'COMPLETED' ? (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span
+                          style={{
+                            fontSize: '11px',
+                            fontWeight: 700,
+                            color: 'var(--color-success-800)',
+                            backgroundColor: 'var(--color-success-50)',
+                            padding: '4px 8px',
+                            borderRadius: '6px',
+                            border: '1px solid var(--color-success-300)',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                          }}
+                        >
+                          ✓ Completed
+                        </span>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleOpenDocsModal(app)}
+                          icon={<FileText size={14} />}
+                          style={{ fontWeight: 700, padding: '6px 12px', fontSize: '12px' }}
+                          title="Verify or inspect physical documents"
+                        >
+                          Verify Docs
+                        </Button>
+                      </div>
+                    ) : app.status === 'REJECTED' ? (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span
+                          style={{
+                            fontSize: '11px',
+                            fontWeight: 700,
+                            color: 'var(--color-danger-800, #991B1B)',
+                            backgroundColor: 'var(--color-danger-50, #FEF2F2)',
+                            padding: '4px 8px',
+                            borderRadius: '6px',
+                            border: '1px solid var(--color-danger-300, #FCA5A5)',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                          }}
+                        >
+                          ✕ Rejected
+                        </span>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleOpenDocsModal(app)}
+                          icon={<FileText size={14} />}
+                          style={{ fontWeight: 700, padding: '6px 12px', fontSize: '12px' }}
+                          title="Re-check physical documents"
+                        >
+                          Re-check Docs
+                        </Button>
+                      </div>
                     ) : (
                       <Button
                         variant="saffron"

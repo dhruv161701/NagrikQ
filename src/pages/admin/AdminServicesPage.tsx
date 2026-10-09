@@ -204,6 +204,12 @@ export const AdminServicesPage: React.FC = () => {
       return;
     }
 
+    if (!avgProcTime || avgProcTime <= 0 || isNaN(avgProcTime)) {
+      setSlotErrorMsg('Average processing time per citizen must be a numeric value greater than zero minutes.');
+      setSlotSubmitting(false);
+      return;
+    }
+
     // Validation: online capacity check
     const citizensPerSlot = Math.floor(slotDuration / avgProcTime);
     const onlineCapacity = Math.floor(citizensPerSlot / 2);
@@ -782,15 +788,25 @@ export const AdminServicesPage: React.FC = () => {
                 <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, color: 'var(--color-neutral-800)', marginBottom: '4px' }}>
                   Average Processing Time per Citizen (mins)
                 </label>
-                <select
-                  value={avgProcTime}
-                  onChange={(e) => setAvgProcTime(Number(e.target.value))}
-                  style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--color-border)', backgroundColor: 'white' }}
-                >
-                  {[3, 5, 6, 8, 10, 15].map((m) => (
-                    <option key={m} value={m}>{m} minutes</option>
-                  ))}
-                </select>
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  required
+                  value={avgProcTime || ''}
+                  onChange={(e) => setAvgProcTime(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                  placeholder="e.g. 5"
+                  style={{
+                    width: '100%',
+                    padding: '8px 12px',
+                    borderRadius: '8px',
+                    border: '1px solid var(--color-border)',
+                    backgroundColor: 'white',
+                    fontSize: '0.9rem',
+                    fontWeight: 700,
+                    color: 'var(--color-primary-900)',
+                  }}
+                />
               </div>
             </div>
 

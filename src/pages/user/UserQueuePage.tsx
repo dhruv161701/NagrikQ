@@ -304,16 +304,37 @@ export const UserQueuePage: React.FC = () => {
     return Math.max(1, Math.floor(citizensPerSlot / 2));
   }, [targetService]);
 
-  // Compute available slots: Enforce 30-minute advance booking window & filter out break slots
-  const availableSlotsForDate = useMemo(() => {
+  // Fix 6, Req 19, Req 20: Compute all slots with distinct statuses (Available, Selected, Full, Past, Break)
+  const allSlotsForDate = useMemo(() => {
     const rawSlots = generateServiceSlots(targetService);
-    return rawSlots
-      .filter((slotObj) => {
-        if (slotObj.isBreak) return false;
-        return isSlotValidForBooking(slotObj.slot, selectedSlotDate, 30);
-      })
-      .map((s) => s.slot);
-  }, [selectedSlotDate, targetService]);
+    return rawSlots.map((slotObj) => {
+      const isValidTime = isSlotValidForBooking(slotObj.slot, selectedSlotDate, 30);
+      const bookedCount = queueTokens.filter(
+        (q) =>
+          q.timeSlot === slotObj.slot &&
+          q.slotDate === selectedSlotDate &&
+          q.serviceId === targetService?.id &&
+          q.status !== 'CANCELLED' &&
+          q.status !== 'EXPIRED'
+      ).length;
+      const remaining = Math.max(0, slotCapacity - bookedCount);
+      const isFull = remaining === 0;
+      const isEligible = !slotObj.isBreak && isValidTime && !isFull;
+
+      return {
+        ...slotObj,
+        isValidTime,
+        bookedCount,
+        remaining,
+        isFull,
+        isEligible,
+      };
+    });
+  }, [selectedSlotDate, targetService, queueTokens, slotCapacity]);
+
+  const availableSlotsForDate = useMemo(() => {
+    return allSlotsForDate.filter((s) => s.isEligible).map((s) => s.slot);
+  }, [allSlotsForDate]);
 
   // Check if booking is stopped for selected service on selected date
   const isBookingStoppedForDate = useMemo(() => {
@@ -391,6 +412,20 @@ export const UserQueuePage: React.FC = () => {
     }).filter((s) => s.isFuture);
   }, [queueTokens, slotCapacity]);
 
+  // Fix 7: Repeat-booking business rule
+  // A citizen CAN book multiple slots for the same service if the earlier booking has not been completed.
+  // However, if the citizen has an active service currently CALLED or IN_SERVICE at the counter, block until completed.
+  // Also block booking the exact same time slot twice on the same day.
+  const activeUnfinishedTurn = useMemo(() => {
+    if (!targetService) return null;
+    const uid = userId || currentUser?.id;
+    return queueTokens.find((q) => {
+      const matchUser = uid && q.citizenId === uid;
+      const matchService = q.serviceId === targetService.id;
+      return matchUser && matchService && (q.status === 'IN_SERVICE' || q.status === 'CALLED');
+    });
+  }, [queueTokens, targetService, userId, currentUser?.id]);
+
   const duplicateBookingForSelectedDate = useMemo(() => {
     if (!targetService) return null;
     const effectiveDate = selectedSlotDate || new Date().toISOString().split('T')[0];
@@ -399,10 +434,10 @@ export const UserQueuePage: React.FC = () => {
       const matchUser = uid && q.citizenId === uid;
       const matchService = q.serviceId === targetService.id;
       const matchDate = q.slotDate === effectiveDate || (!q.slotDate && effectiveDate === new Date().toISOString().split('T')[0]);
-      const isPendingOrServing = ['WAITING', 'CALLED', 'IN_SERVICE'].includes(q.status);
-      return matchUser && matchService && matchDate && isPendingOrServing;
+      const matchSlot = q.timeSlot === selectedTimeSlot;
+      return matchUser && matchService && matchDate && matchSlot && q.status !== 'CANCELLED' && q.status !== 'EXPIRED';
     });
-  }, [queueTokens, targetService, selectedSlotDate, userId, currentUser?.id]);
+  }, [queueTokens, targetService, selectedSlotDate, selectedTimeSlot, userId, currentUser?.id]);
 
   const handleBookToken = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -412,19 +447,16 @@ export const UserQueuePage: React.FC = () => {
       return;
     }
 
-    const effectiveDate = selectedSlotDate || new Date().toISOString().split('T')[0];
-    const uid = userId || currentUser?.id;
-    const existingBooking = queueTokens.find((q) => {
-      const matchUser = uid && q.citizenId === uid;
-      const matchService = q.serviceId === targetService.id;
-      const matchDate = q.slotDate === effectiveDate || (!q.slotDate && effectiveDate === new Date().toISOString().split('T')[0]);
-      const isPendingOrServing = ['WAITING', 'CALLED', 'IN_SERVICE'].includes(q.status);
-      return matchUser && matchService && matchDate && isPendingOrServing;
-    });
-
-    if (existingBooking) {
+    if (activeUnfinishedTurn) {
       setBookingError(
-        `You currently have an active token (${existingBooking.tokenNumber} - ${existingBooking.status}) for ${targetService.name}. Please wait for your service to finish before booking a new slot.`
+        `You currently have an unfinished service in progress at the counter (Token ${activeUnfinishedTurn.tokenNumber}). Please complete your current turn before booking another token.`
+      );
+      return;
+    }
+
+    if (duplicateBookingForSelectedDate) {
+      setBookingError(
+        `You already hold an active booking (Token ${duplicateBookingForSelectedDate.tokenNumber}) for this exact time slot (${selectedTimeSlot}).`
       );
       return;
     }
@@ -1403,7 +1435,7 @@ export const UserQueuePage: React.FC = () => {
                   Online token booking for <strong>{targetService?.name}</strong> has been paused for <strong>{selectedSlotDate}</strong> by office administration due to heavy physical counter load. Please visit the offline counter directly for walk-in token issuance.
                 </p>
               </div>
-            ) : availableSlotsForDate.length === 0 ? (
+            ) : allSlotsForDate.length === 0 ? (
               <div
                 style={{
                   padding: '16px',
@@ -1415,67 +1447,92 @@ export const UserQueuePage: React.FC = () => {
                   textAlign: 'center',
                 }}
               >
-                ⏰ <strong>No more slots available for Today.</strong> All appointment slots for today have concluded. Please select <strong>Tomorrow</strong> above to book your turn.
+                ⏰ <strong>No slots configured for this service.</strong> Please check back later.
               </div>
             ) : (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: '8px', maxHeight: '180px', overflowY: 'auto', paddingRight: '4px' }}>
-                {availableSlotsForDate.map((slot) => {
-                  const bookedCount = queueTokens.filter(
-                    (q) =>
-                      q.timeSlot === slot &&
-                      q.slotDate === selectedSlotDate &&
-                      q.serviceId === targetService?.id &&
-                      q.status !== 'CANCELLED' &&
-                      q.status !== 'EXPIRED'
-                  ).length;
-                  const remaining = Math.max(0, slotCapacity - bookedCount);
-                  const isFull = remaining === 0;
-                  const isSelected = selectedTimeSlot === slot;
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '10px', maxHeight: '220px', overflowY: 'auto', paddingRight: '4px' }}>
+                {allSlotsForDate.map((item) => {
+                  const isSelected = selectedTimeSlot === item.slot && item.isEligible;
+                  const isBreak = item.isBreak;
+                  const isPastOrTooSoon = !item.isValidTime;
+                  const isFull = item.isFull && !isBreak && !isPastOrTooSoon;
+                  const isAvailable = item.isEligible;
+
+                  let bg = 'white';
+                  let borderColor = '#10B981';
+                  let textColor = '#065F46';
+                  let statusText = `${item.remaining}/${slotCapacity} AVAILABLE`;
+                  let cursor = 'pointer';
+                  let isDisabled = false;
+
+                  if (isSelected) {
+                    bg = '#0B4F6C';
+                    borderColor = '#D97706';
+                    textColor = '#FFFFFF';
+                    statusText = `✓ SELECTED (${item.remaining} left)`;
+                  } else if (isBreak) {
+                    bg = '#F1F5F9';
+                    borderColor = '#CBD5E1';
+                    textColor = '#64748B';
+                    statusText = 'STAFF BREAK';
+                    cursor = 'not-allowed';
+                    isDisabled = true;
+                  } else if (isPastOrTooSoon) {
+                    bg = '#F8FAFC';
+                    borderColor = '#E2E8F0';
+                    textColor = '#94A3B8';
+                    statusText = 'PAST / < 30 MINS';
+                    cursor = 'not-allowed';
+                    isDisabled = true;
+                  } else if (isFull) {
+                    bg = '#FEF2F2';
+                    borderColor = '#FCA5A5';
+                    textColor = '#991B1B';
+                    statusText = 'CAPACITY FULL';
+                    cursor = 'not-allowed';
+                    isDisabled = true;
+                  } else {
+                    bg = '#ECFDF5';
+                    borderColor = '#10B981';
+                    textColor = '#065F46';
+                    statusText = `${item.remaining}/${slotCapacity} SPOTS`;
+                  }
 
                   return (
                     <button
                       type="button"
-                      key={slot}
-                      disabled={isFull}
-                      onClick={() => setSelectedTimeSlot(slot)}
+                      key={item.slot}
+                      disabled={isDisabled}
+                      onClick={() => {
+                        if (isAvailable) setSelectedTimeSlot(item.slot);
+                      }}
                       style={{
-                        padding: '8px 10px',
-                        borderRadius: '8px',
-                        border: `2px solid ${
-                          isSelected
-                            ? '#D97706'
-                            : isFull
-                            ? '#E5E7EB'
-                            : '#93C5FD'
-                        }`,
-                        backgroundColor: isSelected
-                          ? '#F59E0B'
-                          : isFull
-                          ? '#F3F4F6'
-                          : 'white',
-                        color: isSelected ? 'white' : isFull ? '#9CA3AF' : '#1E293B',
-                        boxShadow: isSelected ? '0 4px 12px rgba(245, 158, 11, 0.4)' : 'none',
-                        cursor: isFull ? 'not-allowed' : 'pointer',
+                        padding: '10px 10px',
+                        borderRadius: '10px',
+                        border: `2px solid ${borderColor}`,
+                        backgroundColor: bg,
+                        color: textColor,
+                        boxShadow: isSelected ? '0 4px 14px rgba(11, 79, 108, 0.4)' : 'none',
+                        cursor,
                         display: 'flex',
                         flexDirection: 'column',
                         alignItems: 'center',
-                        gap: '2px',
+                        gap: '4px',
                         transition: 'all 0.15s ease',
+                        opacity: isDisabled ? 0.72 : 1,
                       }}
                     >
-                      <span style={{ fontSize: '0.82rem', fontWeight: 800 }}>{slot}</span>
+                      <span style={{ fontSize: '0.85rem', fontWeight: 800 }}>{item.slot}</span>
                       <span
                         style={{
                           fontSize: '10px',
-                          fontWeight: 700,
-                          color: isSelected
-                            ? '#FEF3C7'
-                            : isFull
-                            ? '#DC2626'
-                            : '#059669',
+                          fontWeight: 800,
+                          letterSpacing: '0.5px',
+                          textTransform: 'uppercase',
+                          color: isSelected ? '#FDE68A' : textColor,
                         }}
                       >
-                        {isFull ? 'CAPACITY FULL' : `${remaining}/${slotCapacity} spots`}
+                        {statusText}
                       </span>
                     </button>
                   );

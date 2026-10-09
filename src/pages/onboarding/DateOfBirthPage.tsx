@@ -96,7 +96,7 @@ export const DateOfBirthPage: React.FC = () => {
               Tell us your date of birth
             </h1>
             <p style={{ color: 'var(--color-neutral-600)', fontSize: '0.95rem' }}>
-              We use your age solely to suggest an optimal visual interface mode (Modern or Simple).
+              We use your age solely to suggest an optimal visual interface mode (A- or A+).
             </p>
           </div>
 

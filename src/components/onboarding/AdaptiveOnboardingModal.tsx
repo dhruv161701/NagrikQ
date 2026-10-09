@@ -161,11 +161,11 @@ export const AdaptiveOnboardingModal: React.FC = () => {
               <Sparkles size={24} style={{ color: 'var(--color-accent-600)', flexShrink: 0 }} />
               <div>
                 <span style={{ fontWeight: 700, color: 'var(--color-accent-700)', fontSize: '0.95rem' }}>
-                  Recommended Initial Mode: {recommendedMode === 'modern' ? '⚡ Modern Mode' : '🧓 Simple Mode'}
+                  Recommended Initial Mode: {recommendedMode === 'modern' ? '⚡ A- Mode' : '🧓 A+ Mode'}
                 </span>
                 <p style={{ fontSize: '0.88rem', color: 'var(--color-neutral-700)', marginTop: '4px' }}>
                   Based on your age ({calculatedAge}), we suggest{' '}
-                  <strong>{recommendedMode === 'modern' ? 'Modern Mode' : 'Simple Mode'}</strong> for optimum accessibility. You can change this anytime from Settings!
+                  <strong>{recommendedMode === 'modern' ? 'A- Mode' : 'A+ Mode'}</strong> for optimum accessibility. You can change this anytime from Settings!
                 </p>
               </div>
             </div>
@@ -188,7 +188,7 @@ export const AdaptiveOnboardingModal: React.FC = () => {
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span style={{ fontWeight: 700, fontSize: '1.1rem', color: 'var(--color-neutral-900)' }}>
-                    ⚡ Modern Mode
+                    ⚡ A- Mode
                   </span>
                   {chosenMode === 'modern' && <CheckCircle size={20} style={{ color: 'var(--color-primary-700)' }} />}
                 </div>
@@ -216,7 +216,7 @@ export const AdaptiveOnboardingModal: React.FC = () => {
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span style={{ fontWeight: 700, fontSize: '1.1rem', color: 'var(--color-neutral-900)' }}>
-                    🧓 Simple Mode
+                    🧓 A+ Mode
                   </span>
                   {chosenMode === 'simple' && <CheckCircle size={20} style={{ color: 'var(--color-primary-700)' }} />}
                 </div>

@@ -133,38 +133,43 @@ export const mockRepository = {
     };
     queueState = [...queueState, newToken];
 
-    // Also auto-create Application for the Employee Panel to view online submitted documents!
-    const appNum = `APP-${Math.floor(100000 + Math.random() * 900000)}`;
-    const newApp: Application = {
-      id: `app-${Date.now()}`,
-      applicationNumber: appNum,
-      serviceId,
-      serviceName,
-      citizenId,
-      citizenName,
-      citizenPhone,
-      submittedAt: new Date().toLocaleString(),
-      status: 'SUBMITTED',
-      officeId,
-      officeName: `${selectedCity} Jan Seva Kendra`,
-      documents: submittedDocs.map((d: any, idx: number) => ({
-        id: `doc-${Date.now()}-${idx}`,
-        requirementId: d.requirementId || `req-${idx}`,
-        requirementName: d.requirementName || d.name || 'Required Certificate',
-        fileUrl: d.fileUrl || '#',
-        fileName: d.fileName || `${d.requirementName || 'Document'}.pdf`,
-        status: 'PENDING',
-        validityPeriod: d.validityPeriod || 'Valid for 3 Years',
-      })),
-      timeline: [
-        {
-          status: 'SUBMITTED',
-          timestamp: new Date().toLocaleString(),
-          note: `Slot booked for ${slotDate} (${timeSlot}) in ${selectedCity}, ${selectedState}. Documents submitted online for verification.`,
-        },
-      ],
-    };
-    applicationsState = [newApp, ...applicationsState];
+    // Only auto-create Application if no matching open application exists for this citizen and service
+    const existingApp = applicationsState.find(
+      (a) => a.citizenId === citizenId && a.serviceId === serviceId && (a.status === 'SUBMITTED' || a.status === 'UNDER_REVIEW')
+    );
+    if (!existingApp) {
+      const appNum = `APP-${Math.floor(100000 + Math.random() * 900000)}`;
+      const newApp: Application = {
+        id: `app-${Date.now()}`,
+        applicationNumber: appNum,
+        serviceId,
+        serviceName,
+        citizenId,
+        citizenName,
+        citizenPhone,
+        submittedAt: new Date().toLocaleString(),
+        status: 'SUBMITTED',
+        officeId,
+        officeName: `${selectedCity} Jan Seva Kendra`,
+        documents: submittedDocs.map((d: any, idx: number) => ({
+          id: `doc-${Date.now()}-${idx}`,
+          requirementId: d.requirementId || `req-${idx}`,
+          requirementName: d.requirementName || d.name || 'Required Certificate',
+          fileUrl: d.fileUrl || '#',
+          fileName: d.fileName || `${d.requirementName || 'Document'}.pdf`,
+          status: 'PENDING',
+          validityPeriod: d.validityPeriod || 'Valid for 3 Years',
+        })),
+        timeline: [
+          {
+            status: 'SUBMITTED',
+            timestamp: new Date().toLocaleString(),
+            note: `Slot booked for ${slotDate} (${timeSlot}) in ${selectedCity}, ${selectedState}. Documents submitted online for verification.`,
+          },
+        ],
+      };
+      applicationsState = [newApp, ...applicationsState];
+    }
     
     this.addAuditLog(citizenId, citizenName, 'citizen', 'GENERATE_QUEUE_TOKEN', serviceName, `Token ${tokenNum} generated for ${serviceName} (${timeSlot})`);
     notify();

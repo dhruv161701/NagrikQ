@@ -1,6 +1,8 @@
 import { Response } from 'express';
 import { AuthenticatedRequest, ApiResponse } from '../types';
 import { supabaseAdmin } from '../config/supabase';
+import { bookingMutex } from '../utils/mutex';
+import { getOfficeLocalTime, isSlotInPastOrTooSoon } from '../utils/timezone';
 
 export const generateToken = async (
   req: AuthenticatedRequest,
@@ -55,130 +57,168 @@ export const generateToken = async (
       if (firstOffice) resolvedOfficeId = firstOffice.id;
     }
 
-    // Count waiting tokens today to assign next sequential number and position
-    const bookingDate = slotDate || new Date().toISOString().split('T')[0];
-    const todayStr = new Date().toISOString().split('T')[0];
+    const { localDateStr } = getOfficeLocalTime();
+    const bookingDate = slotDate || localDateStr;
 
-    // Helper to parse "09:30 AM" or "09:30 AM - 10:00 AM" into minutes from midnight
-    const parseTimeToMinutes = (tStr: string): number | null => {
-      if (!tStr) return null;
-      const match = tStr.trim().match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?$/i);
-      if (!match) return null;
-      let h = parseInt(match[1], 10);
-      const m = parseInt(match[2], 10);
-      const meridiem = match[3]?.toUpperCase();
-      if (meridiem === 'PM' && h < 12) h += 12;
-      if (meridiem === 'AM' && h === 12) h = 0;
-      return h * 60 + m;
-    };
+    // Requirement 22 & Concurrency: Protect per-slot booking creation with keyed mutex
+    const lockKey = `slot_${resolvedServiceId}_${bookingDate}_${timeSlot || 'WALKIN'}`;
 
-    // Rule 1: Past date restriction
-    if (bookingDate < todayStr) {
-      res.status(400).json({
-        success: false,
-        error: { code: 'PAST_DATE', message: 'Tokens cannot be booked for past dates.' },
-      });
-      return;
-    }
-
-    // Fetch service configuration for slot capacity & stopped dates
-    const { data: serviceConfig } = await supabaseAdmin
-      .from('services')
-      .select('stopped_booking_dates, is_booking_stopped, start_time, end_time, slot_duration_minutes, avg_processing_time_minutes, slot_capacity')
-      .eq('id', resolvedServiceId)
-      .maybeSingle();
-
-    // Rule 2: Stopped Booking Check for target date
-    if (serviceConfig) {
-      const isStopped =
-        (serviceConfig.stopped_booking_dates && serviceConfig.stopped_booking_dates.includes(bookingDate)) ||
-        (bookingDate === todayStr && serviceConfig.is_booking_stopped);
-
-      if (isStopped) {
+    await bookingMutex.runExclusive(lockKey, async () => {
+      // Requirement 19: Reject past date restriction
+      if (bookingDate < localDateStr) {
         res.status(400).json({
           success: false,
-          error: {
-            code: 'BOOKING_STOPPED',
-            message: `Online bookings for this service are stopped for ${bookingDate} due to heavy counter crowd. Please visit the offline counter for walk-in token issuance.`,
-          },
+          error: { code: 'PAST_DATE', message: 'Tokens cannot be booked for past dates.' },
         });
         return;
       }
-    }
 
-    // Rule 3: 30-Minute Advance Booking Rule for Today's slots
-    if (bookingDate === todayStr && timeSlot) {
-      const slotStartTimeStr = timeSlot.split('-')[0].trim();
-      const slotStartMins = parseTimeToMinutes(slotStartTimeStr);
-      if (slotStartMins !== null) {
-        const now = new Date();
-        const currentMins = now.getHours() * 60 + now.getMinutes();
-        if (slotStartMins < currentMins + 30) {
+      // Fetch service configuration for slot capacity & stopped dates
+      const { data: serviceConfig } = await supabaseAdmin
+        .from('services')
+        .select('stopped_booking_dates, is_booking_stopped, start_time, end_time, slot_duration_minutes, avg_processing_time_minutes, slot_capacity')
+        .eq('id', resolvedServiceId)
+        .maybeSingle();
+
+      // Requirement 24: Stopped Booking Check for target date (both services table and service_stop_bookings table)
+      if (serviceConfig) {
+        const isStoppedInService =
+          (serviceConfig.stopped_booking_dates && serviceConfig.stopped_booking_dates.includes(bookingDate)) ||
+          (bookingDate === localDateStr && serviceConfig.is_booking_stopped);
+
+        if (isStoppedInService) {
+          res.status(400).json({
+            success: false,
+            error: {
+              code: 'BOOKING_STOPPED',
+              message: `Online bookings for this service are stopped for ${bookingDate} due to heavy counter crowd. Please visit the offline counter for walk-in token issuance.`,
+            },
+          });
+          return;
+        }
+
+        try {
+          const { data: stopRow } = await supabaseAdmin
+            .from('service_stop_bookings')
+            .select('id')
+            .eq('service_id', resolvedServiceId)
+            .eq('stop_date', bookingDate)
+            .maybeSingle();
+
+          if (stopRow) {
+            res.status(400).json({
+              success: false,
+              error: {
+                code: 'BOOKING_STOPPED',
+                message: `Online bookings for this service are stopped for ${bookingDate} by counter administration.`,
+              },
+            });
+            return;
+          }
+        } catch {
+          // Ignore if table not created yet
+        }
+      }
+
+      // Requirement 19 & 20: 30-Minute Advance Booking Rule & Past Slot Rejection
+      if (timeSlot) {
+        const slotCheck = isSlotInPastOrTooSoon(bookingDate, timeSlot, 30);
+        if (slotCheck.isPastOrTooSoon) {
           res.status(400).json({
             success: false,
             error: {
               code: 'SLOT_EXPIRED_OR_TOO_SOON',
-              message: 'Tokens must be booked at least 30 minutes in advance of slot start time (slot_start_time >= current_time + 30 minutes).',
+              message: slotCheck.reason || 'Tokens must be booked at least 30 minutes in advance of slot start time (slot_start_time >= current_time + 30 minutes).',
             },
           });
           return;
         }
       }
-    }
 
-    // Rule 4: Online Booking Capacity Limit
-    if (timeSlot && serviceConfig) {
-      const duration = serviceConfig.slot_duration_minutes || 30;
-      const procTime = serviceConfig.avg_processing_time_minutes || 5;
-      const configuredCap = serviceConfig.slot_capacity || Math.floor(Math.floor(duration / procTime) / 2);
-      const maxCapacity = Math.max(1, configuredCap);
+      // Requirement 22: Online Booking Capacity Limit
+      // Theoretical capacity = floor(slot duration / average processing time)
+      // Reserved offline capacity = floor(theoretical capacity / 2)
+      // Maximum online bookings = floor(theoretical capacity / 2)
+      if (timeSlot && serviceConfig) {
+        const duration = serviceConfig.slot_duration_minutes || 30;
+        const procTime = serviceConfig.avg_processing_time_minutes || 5;
+        const theoreticalCap = Math.floor(duration / procTime);
+        const onlineCap = Math.floor(theoreticalCap / 2);
+        const maxCapacity = Math.max(1, serviceConfig.slot_capacity || onlineCap);
 
-      const { count: currentSlotBookings } = await supabaseAdmin
+        const { count: currentSlotBookings } = await supabaseAdmin
+          .from('queue_tokens')
+          .select('*', { count: 'exact', head: true })
+          .eq('service_id', resolvedServiceId)
+          .or(`slot_date.eq.${bookingDate},queue_date.eq.${bookingDate}`)
+          .eq('time_slot', timeSlot)
+          .not('status', 'in', '("CANCELLED")');
+
+        if ((currentSlotBookings || 0) >= maxCapacity) {
+          res.status(400).json({
+            success: false,
+            error: {
+              code: 'SLOT_FULL',
+              message: `Time slot ${timeSlot} has reached maximum online capacity (${maxCapacity} bookings). Please select another slot.`,
+            },
+          });
+          return;
+        }
+      }
+
+      // Fix 7: Repeat-Booking Business Rule
+      // A citizen CAN book multiple slots for the same service if the earlier booking has not been completed
+      // and business rules permit.
+      // However, if the citizen has an unfinished service actively called/in-progress at the counter, prevent another booking.
+      const { data: inProgressTurn } = await supabaseAdmin
         .from('queue_tokens')
-        .select('*', { count: 'exact', head: true })
+        .select('id, token_number, status')
+        .eq('user_id', userId)
         .eq('service_id', resolvedServiceId)
-        .or(`slot_date.eq.${bookingDate},queue_date.eq.${bookingDate}`)
-        .eq('time_slot', timeSlot)
-        .not('status', 'in', '("CANCELLED")');
+        .in('status', ['IN_SERVICE', 'CALLED'])
+        .limit(1)
+        .maybeSingle();
 
-      if ((currentSlotBookings || 0) >= maxCapacity) {
+      if (inProgressTurn) {
         res.status(400).json({
           success: false,
           error: {
-            code: 'SLOT_FULL',
-            message: `Time slot ${timeSlot} has reached maximum online capacity (${maxCapacity} bookings). Please select another slot.`,
+            code: 'SERVICE_IN_PROGRESS',
+            message: `You currently have an unfinished service in progress at the counter (Token ${inProgressTurn.token_number}). Please complete this turn before booking another token.`,
           },
         });
         return;
       }
-    }
 
-    // Check duplicate booking: same user cannot book the same service multiple times in a day
-    const { data: existingBooking } = await supabaseAdmin
-      .from('queue_tokens')
-      .select('id, token_number, time_slot, status, slot_date')
-      .eq('user_id', userId)
-      .eq('service_id', resolvedServiceId)
-      .or(`slot_date.eq.${bookingDate},queue_date.eq.${bookingDate}`)
-      .not('status', 'in', '("CANCELLED")')
-      .limit(1)
-      .maybeSingle();
+      // Prevent booking the exact same time slot twice
+      if (timeSlot) {
+        const { data: duplicateSlot } = await supabaseAdmin
+          .from('queue_tokens')
+          .select('id, token_number, status')
+          .eq('user_id', userId)
+          .eq('service_id', resolvedServiceId)
+          .or(`slot_date.eq.${bookingDate},queue_date.eq.${bookingDate}`)
+          .eq('time_slot', timeSlot)
+          .not('status', 'in', '("CANCELLED","COMPLETED")')
+          .limit(1)
+          .maybeSingle();
 
-    if (existingBooking) {
-      res.status(400).json({
-        success: false,
-        error: {
-          code: 'DUPLICATE_BOOKING',
-          message: `You already have a booking (Token ${existingBooking.token_number} for slot ${existingBooking.time_slot || 'scheduled'}) for this service on ${bookingDate}. Same user cannot book the same service multiple times on the same day.`,
-        },
-      });
-      return;
-    }
+        if (duplicateSlot) {
+          res.status(400).json({
+            success: false,
+            error: {
+              code: 'DUPLICATE_SLOT_BOOKING',
+              message: `You already hold an active booking (Token ${duplicateSlot.token_number}) for this exact time slot (${timeSlot}).`,
+            },
+          });
+          return;
+        }
+      }
 
-    const { count: waitingCount } = await supabaseAdmin
-      .from('queue_tokens')
-      .select('*', { count: 'exact', head: true })
-      .eq('status', 'WAITING');
+      const { count: waitingCount } = await supabaseAdmin
+        .from('queue_tokens')
+        .select('*', { count: 'exact', head: true })
+        .eq('status', 'WAITING');
 
     const totalWaiting = waitingCount || 0;
     const tokenNumber = `A${100 + totalWaiting + 1}`;
@@ -309,6 +349,7 @@ export const generateToken = async (
     });
 
     res.status(201).json({ success: true, data: finalTokenData } as ApiResponse);
+    });
   } catch (err: any) {
     res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: err.message } });
   }
@@ -429,11 +470,47 @@ export const getOfficerQueueTokens = async (
       .select('*, services(id, name, code, category), offices(id, name), profiles:user_id(id, full_name, phone)')
       .order('created_at', { ascending: true });
 
-    if (serviceIds && typeof serviceIds === 'string') {
-      const ids = serviceIds.split(',').filter(Boolean);
-      if (ids.length > 0) {
-        query = query.in('service_id', ids);
+    // Fix 8: Employee Service Eligibility filtering
+    let eligibleServiceIds: string[] | null = null;
+    if (req.user?.role === 'employee' && req.user?.id) {
+      const { data: officerRec } = await supabaseAdmin
+        .from('officers')
+        .select('assigned_service_ids')
+        .eq('user_id', req.user.id)
+        .maybeSingle();
+
+      if (Array.isArray(officerRec?.assigned_service_ids) && officerRec.assigned_service_ids.length > 0) {
+        eligibleServiceIds = officerRec.assigned_service_ids;
+      } else {
+        const { data: staffRec } = await supabaseAdmin
+          .from('staff_profiles')
+          .select('assigned_service_ids')
+          .eq('id', req.user.id)
+          .maybeSingle();
+        if (Array.isArray(staffRec?.assigned_service_ids) && staffRec.assigned_service_ids.length > 0) {
+          eligibleServiceIds = staffRec.assigned_service_ids;
+        }
       }
+    }
+
+    let finalServiceFilter: string[] | null = null;
+    if (serviceIds && typeof serviceIds === 'string') {
+      const requestedIds = serviceIds.split(',').filter(Boolean);
+      if (eligibleServiceIds !== null) {
+        finalServiceFilter = requestedIds.filter((id) => eligibleServiceIds!.includes(id));
+      } else {
+        finalServiceFilter = requestedIds;
+      }
+    } else if (eligibleServiceIds !== null) {
+      finalServiceFilter = eligibleServiceIds;
+    }
+
+    if (finalServiceFilter !== null) {
+      if (finalServiceFilter.length === 0) {
+        res.json({ success: true, data: [] } as ApiResponse);
+        return;
+      }
+      query = query.in('service_id', finalServiceFilter);
     }
 
     if (counterNumber && typeof counterNumber === 'string') {
@@ -522,7 +599,25 @@ export const callNextToken = async (
       }
     }
 
-    // 2. Query for next waiting citizen matching officer's assigned services
+    // 2. Query for next waiting citizen matching officer's assigned services (Fix 8)
+    let effectiveServiceIds: string[] = Array.isArray(serviceIds) ? serviceIds : [];
+    if (req.user?.role === 'employee' && req.user?.id) {
+      const { data: officerRec } = await supabaseAdmin
+        .from('officers')
+        .select('assigned_service_ids')
+        .eq('user_id', req.user.id)
+        .maybeSingle();
+
+      const assigned = officerRec?.assigned_service_ids;
+      if (Array.isArray(assigned) && assigned.length > 0) {
+        if (effectiveServiceIds.length > 0) {
+          effectiveServiceIds = effectiveServiceIds.filter((id) => assigned.includes(id));
+        } else {
+          effectiveServiceIds = assigned;
+        }
+      }
+    }
+
     let query = supabaseAdmin
       .from('queue_tokens')
       .select('id, token_number, user_id, service_id, status')
@@ -530,8 +625,8 @@ export const callNextToken = async (
       .order('created_at', { ascending: true })
       .limit(1);
 
-    if (Array.isArray(serviceIds) && serviceIds.length > 0) {
-      query = query.in('service_id', serviceIds);
+    if (effectiveServiceIds.length > 0) {
+      query = query.in('service_id', effectiveServiceIds);
     }
 
     const { data: waitingList, error: findError } = await query;

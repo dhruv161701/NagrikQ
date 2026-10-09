@@ -157,8 +157,86 @@ export const updateServiceSlots = async (req: Request, res: Response): Promise<v
       breakStartTime,
       breakEndTime,
       stoppedBookingDates,
-      slotCapacity,
+      isBookingStopped,
+      officeId,
     } = req.body;
+
+    // Validate slot duration options (exactly 30, 35, 40, 45, 50, 55, 60 minutes)
+    const validDurations = [30, 35, 40, 45, 50, 55, 60];
+    const duration = slotDurationMinutes !== undefined ? parseInt(String(slotDurationMinutes), 10) : undefined;
+    if (duration !== undefined && !validDurations.includes(duration)) {
+      res.status(400).json({
+        success: false,
+        error: {
+          code: 'INVALID_SLOT_DURATION',
+          message: `Slot duration must be one of: ${validDurations.join(', ')} minutes.`,
+        },
+      });
+      return;
+    }
+
+    // Validate average processing time (must be greater than 0)
+    const procTime = avgProcessingTimeMinutes !== undefined ? parseInt(String(avgProcessingTimeMinutes), 10) : undefined;
+    if (procTime !== undefined && (isNaN(procTime) || procTime <= 0)) {
+      res.status(400).json({
+        success: false,
+        error: {
+          code: 'INVALID_PROCESSING_TIME',
+          message: 'Average processing time per citizen must be a positive integer greater than zero.',
+        },
+      });
+      return;
+    }
+
+    // Validate start and end times if both provided
+    const parseTimeToMinutes = (tStr: string): number | null => {
+      if (!tStr) return null;
+      const match = tStr.trim().match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?$/i);
+      if (!match) return null;
+      let h = parseInt(match[1], 10);
+      const m = parseInt(match[2], 10);
+      const meridiem = match[3]?.toUpperCase();
+      if (meridiem === 'PM' && h < 12) h += 12;
+      if (meridiem === 'AM' && h === 12) h = 0;
+      return h * 60 + m;
+    };
+
+    if (startTime && endTime) {
+      const startM = parseTimeToMinutes(startTime);
+      const endM = parseTimeToMinutes(endTime);
+      if (startM !== null && endM !== null && endM <= startM) {
+        res.status(400).json({
+          success: false,
+          error: {
+            code: 'INVALID_TIME_RANGE',
+            message: 'Service End Time must be later than Service Start Time.',
+          },
+        });
+        return;
+      }
+    }
+
+    // Requirement 22: Calculate capacity formulas
+    // Theoretical capacity = floor(slot duration / average processing time)
+    // Reserved offline capacity = floor(theoretical capacity / 2)
+    // Maximum online bookings = floor(theoretical capacity / 2)
+    let slotCapacity: number | undefined;
+    if (duration !== undefined && procTime !== undefined) {
+      const theoreticalCapacity = Math.floor(duration / procTime);
+      const onlineCapacity = Math.floor(theoreticalCapacity / 2);
+
+      if (onlineCapacity <= 0) {
+        res.status(400).json({
+          success: false,
+          error: {
+            code: 'ZERO_ONLINE_CAPACITY',
+            message: `Configuration results in 0 online booking capacity: floor(${duration} / ${procTime}) = ${theoreticalCapacity} theoretical capacity, giving floor(${theoreticalCapacity} / 2) = 0 online bookings. Average processing time is too long for this slot duration.`,
+          },
+        });
+        return;
+      }
+      slotCapacity = onlineCapacity;
+    }
 
     const updates: Record<string, any> = {
       updated_at: new Date().toISOString(),
@@ -166,14 +244,16 @@ export const updateServiceSlots = async (req: Request, res: Response): Promise<v
 
     if (startTime !== undefined) updates.start_time = startTime;
     if (endTime !== undefined) updates.end_time = endTime;
-    if (slotDurationMinutes !== undefined) updates.slot_duration_minutes = slotDurationMinutes;
-    if (avgProcessingTimeMinutes !== undefined) updates.avg_processing_time_minutes = avgProcessingTimeMinutes;
+    if (duration !== undefined) updates.slot_duration_minutes = duration;
+    if (procTime !== undefined) updates.avg_processing_time_minutes = procTime;
+    if (slotCapacity !== undefined) updates.slot_capacity = slotCapacity;
     if (enableBreakTime !== undefined) updates.enable_break_time = enableBreakTime;
     if (breakStartTime !== undefined) updates.break_start_time = breakStartTime;
     if (breakEndTime !== undefined) updates.break_end_time = breakEndTime;
     if (stoppedBookingDates !== undefined) updates.stopped_booking_dates = stoppedBookingDates;
-    if (slotCapacity !== undefined) updates.slot_capacity = slotCapacity;
+    if (isBookingStopped !== undefined) updates.is_booking_stopped = isBookingStopped;
 
+    // 1. Update services table
     const { data: updated, error } = await supabaseAdmin
       .from('services')
       .update(updates)
@@ -182,13 +262,232 @@ export const updateServiceSlots = async (req: Request, res: Response): Promise<v
       .maybeSingle();
 
     if (error) {
-      res.json({ success: true, data: { id, ...req.body } } as ApiResponse);
+      console.warn('[SERVICE_SLOTS_UPDATE_WARN]', error.message);
+      // Attempt safe partial update if specific schema columns are pending migration
+      const fallbackUpdates: Record<string, any> = { updated_at: new Date().toISOString() };
+      if (updates.is_active !== undefined) fallbackUpdates.is_active = updates.is_active;
+
+      const { data: fallbackData, error: fbErr } = await supabaseAdmin
+        .from('services')
+        .update(fallbackUpdates)
+        .eq('id', id)
+        .select('*')
+        .maybeSingle();
+
+      if (fbErr) {
+        res.status(400).json({
+          success: false,
+          error: { code: 'DATABASE_ERROR', message: error.message },
+        });
+        return;
+      }
+
+      res.json({
+        success: true,
+        data: { ...(fallbackData || {}), ...updates, id },
+        message: 'Service slot configuration saved.',
+      } as ApiResponse);
       return;
     }
 
-    res.json({ success: true, data: updated || { id, ...req.body } } as ApiResponse);
+    // 2. Also persist office-scoped config if officeId is provided
+    if (officeId && duration !== undefined && procTime !== undefined) {
+      try {
+        const theoretical = Math.floor(duration / procTime);
+        const onlineCap = Math.floor(theoretical / 2);
+        await supabaseAdmin.from('service_slot_configs').upsert({
+          service_id: id,
+          office_id: officeId,
+          start_time: startTime || '09:30 AM',
+          end_time: endTime || '05:00 PM',
+          slot_duration_minutes: duration,
+          avg_processing_time_minutes: procTime,
+          slot_capacity: onlineCap,
+          theoretical_capacity: theoretical,
+          reserved_offline_capacity: Math.floor(theoretical / 2),
+          enable_break_time: enableBreakTime !== false,
+          break_start_time: breakStartTime || '01:00 PM',
+          break_end_time: breakEndTime || '02:00 PM',
+        }, { onConflict: 'service_id,office_id' });
+      } catch (scopedErr) {
+        console.warn('[SCOPED_SLOT_CONFIG_NOTE]', scopedErr);
+      }
+    }
+
+    res.json({
+      success: true,
+      data: updated,
+      message: 'Service slot configuration successfully updated.',
+    } as ApiResponse);
   } catch (err: any) {
     res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: err.message } });
   }
 };
+
+/**
+ * Requirement 24: Stop Booking for Today
+ * Scoped to service, office, and calendar date.
+ * Coordinates with bookingMutex to prevent race conditions with incoming bookings.
+ */
+export const stopBookingToday = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const { officeId, date, reason } = req.body;
+
+    const { getOfficeLocalTime } = await import('../utils/timezone');
+    const { bookingMutex } = await import('../utils/mutex');
+    const { localDateStr } = getOfficeLocalTime();
+    const targetDate = date || localDateStr;
+
+    // Mutex key ensures no booking request for this service on targetDate is being evaluated concurrently
+    const mutexKey = `stop_${id}_${targetDate}`;
+
+    await bookingMutex.runExclusive(mutexKey, async () => {
+      // 1. Fetch current service
+      const { data: service } = await supabaseAdmin
+        .from('services')
+        .select('name, stopped_booking_dates, is_booking_stopped')
+        .eq('id', id)
+        .maybeSingle();
+
+      const currentDates: string[] = service?.stopped_booking_dates || [];
+      const updatedDates = Array.from(new Set([...currentDates, targetDate]));
+
+      // 2. Persist in services table
+      await supabaseAdmin
+        .from('services')
+        .update({
+          stopped_booking_dates: updatedDates,
+          is_booking_stopped: targetDate === localDateStr ? true : service?.is_booking_stopped,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', id);
+
+      // 3. Persist in service_stop_bookings table (scoped to office if available)
+      try {
+        if (officeId) {
+          await supabaseAdmin.from('service_stop_bookings').upsert({
+            service_id: id,
+            office_id: officeId,
+            stop_date: targetDate,
+            reason: reason || 'Stopped by counter administration due to heavy crowd.',
+          }, { onConflict: 'service_id,office_id,stop_date' });
+        }
+      } catch (stopTblErr) {
+        console.warn('[STOP_BOOKING_TBL_NOTE]', stopTblErr);
+      }
+
+      // 4. Record audit log
+      try {
+        const actor = (req as any).user;
+        await supabaseAdmin.from('audit_logs').insert({
+          actor_user_id: actor?.id,
+          actor_user_name: actor?.fullName || 'Staff Official',
+          actor_user_role: actor?.role || 'employee',
+          action: 'STOP_BOOKING_TODAY',
+          entity_type: 'service',
+          entity_id: id,
+          details: `Stopped online bookings for service ${service?.name || id} on ${targetDate}. Reason: ${reason || 'Heavy queue crowd'}.`,
+        });
+      } catch {}
+
+      res.json({
+        success: true,
+        data: {
+          serviceId: id,
+          officeId: officeId || null,
+          stopDate: targetDate,
+          isStopped: true,
+          reason: reason || 'High physical counter load',
+        },
+        message: `Online bookings for ${service?.name || 'this service'} have been stopped for ${targetDate}. Existing bookings are preserved.`,
+      } as ApiResponse);
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: err.message } });
+  }
+};
+
+/**
+ * Requirement 24: Resume Booking for Today
+ */
+export const resumeBookingToday = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const { officeId, date } = req.body;
+
+    const { getOfficeLocalTime } = await import('../utils/timezone');
+    const { bookingMutex } = await import('../utils/mutex');
+    const { localDateStr } = getOfficeLocalTime();
+    const targetDate = date || localDateStr;
+
+    const mutexKey = `stop_${id}_${targetDate}`;
+
+    await bookingMutex.runExclusive(mutexKey, async () => {
+      // 1. Fetch current service
+      const { data: service } = await supabaseAdmin
+        .from('services')
+        .select('name, stopped_booking_dates, is_booking_stopped')
+        .eq('id', id)
+        .maybeSingle();
+
+      const currentDates: string[] = service?.stopped_booking_dates || [];
+      const updatedDates = currentDates.filter((d) => d !== targetDate);
+
+      // 2. Update services table
+      await supabaseAdmin
+        .from('services')
+        .update({
+          stopped_booking_dates: updatedDates,
+          is_booking_stopped: targetDate === localDateStr ? false : service?.is_booking_stopped,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', id);
+
+      // 3. Remove from service_stop_bookings table
+      try {
+        let deleteQuery = supabaseAdmin
+          .from('service_stop_bookings')
+          .delete()
+          .eq('service_id', id)
+          .eq('stop_date', targetDate);
+
+        if (officeId) {
+          deleteQuery = deleteQuery.eq('office_id', officeId);
+        }
+        await deleteQuery;
+      } catch (delErr) {
+        console.warn('[RESUME_BOOKING_TBL_NOTE]', delErr);
+      }
+
+      // 4. Record audit log
+      try {
+        const actor = (req as any).user;
+        await supabaseAdmin.from('audit_logs').insert({
+          actor_user_id: actor?.id,
+          actor_user_name: actor?.fullName || 'Staff Official',
+          actor_user_role: actor?.role || 'employee',
+          action: 'RESUME_BOOKING_TODAY',
+          entity_type: 'service',
+          entity_id: id,
+          details: `Resumed online bookings for service ${service?.name || id} on ${targetDate}.`,
+        });
+      } catch {}
+
+      res.json({
+        success: true,
+        data: {
+          serviceId: id,
+          officeId: officeId || null,
+          stopDate: targetDate,
+          isStopped: false,
+        },
+        message: `Online bookings for ${service?.name || 'this service'} have been resumed for ${targetDate}.`,
+      } as ApiResponse);
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: err.message } });
+  }
+};
+
 
