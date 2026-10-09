@@ -20,6 +20,7 @@ import { ResetPasswordPage } from '../pages/public/ResetPasswordPage';
 // Onboarding Pages
 import { LanguageSelectionPage } from '../pages/onboarding/LanguageSelectionPage';
 import { DateOfBirthPage } from '../pages/onboarding/DateOfBirthPage';
+import { PhoneSelectionPage } from '../pages/onboarding/PhoneSelectionPage';
 import { ModeRecommendationPage } from '../pages/onboarding/ModeRecommendationPage';
 
 // Citizen Pages
@@ -83,6 +84,14 @@ export const AppRoutes: React.FC = () => {
         element={
           <ProtectedRoute allowedRoles={['citizen']}>
             <DateOfBirthPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/onboarding/phone"
+        element={
+          <ProtectedRoute allowedRoles={['citizen']}>
+            <PhoneSelectionPage />
           </ProtectedRoute>
         }
       />

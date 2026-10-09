@@ -110,7 +110,7 @@ export const Navbar: React.FC = () => {
             title="Toggle between Modern & Simple interface mode"
           >
             <Layers size={14} style={{ color: 'var(--color-primary)' }} />
-            {uiMode === 'modern' ? '⚡ Modern Mode' : '🧓 Simple Mode'}
+            {uiMode === 'modern' ? '⚡ A-' : '🧓 A+'}
           </button>
 
           {/* User Account / Navigation button */}

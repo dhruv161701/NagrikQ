@@ -55,14 +55,23 @@ export async function triggerIdpCreatedWebhook(payload: IdpCreatedEventPayload):
     // 2. Fetch linked Telegram Chat ID from telegram_mappings using user_id or phone
     let chatId: number | string | null = null;
     try {
-      const { data: mapping } = await supabaseAdmin
+      const { data: mappings } = await supabaseAdmin
         .from('telegram_mappings')
-        .select('telegram_chat_id, normalized_phone')
-        .eq('user_id', application.userId)
-        .maybeSingle();
+        .select('telegram_chat_id, normalized_phone, user_id');
 
-      if (mapping?.telegram_chat_id) {
-        chatId = mapping.telegram_chat_id;
+      if (mappings && mappings.length > 0) {
+        // Try user_id match first
+        let matched = mappings.find((m) => m.user_id === application.userId);
+        
+        // If not matched, try matching normalized phone
+        if (!matched && application.phone) {
+          const appPhoneDigits = application.phone.replace(/\D/g, '').slice(-10);
+          matched = mappings.find((m) => m.normalized_phone === appPhoneDigits || m.normalized_phone.endsWith(appPhoneDigits));
+        }
+
+        if (matched?.telegram_chat_id) {
+          chatId = matched.telegram_chat_id;
+        }
       }
     } catch (e: any) {
       console.warn('[N8N_WEBHOOK_MAP_WARN]', e.message);

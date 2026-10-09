@@ -113,39 +113,7 @@ export const UserDocumentsPage: React.FC = () => {
     } catch {
       // Ignore
     }
-    const tenDaysFromNow = new Date();
-    tenDaysFromNow.setDate(tenDaysFromNow.getDate() + 10);
-
-    const pastThreeYearsMinus10Days = new Date();
-    pastThreeYearsMinus10Days.setFullYear(pastThreeYearsMinus10Days.getFullYear() - 3);
-    pastThreeYearsMinus10Days.setDate(pastThreeYearsMinus10Days.getDate() + 10);
-
-    return [
-      {
-        id: 'vault-init-income',
-        name: 'Income Certificate',
-        type: 'Revenue Certificate',
-        fileName: 'income_certificate_2023.pdf',
-        fileSize: '1.4 MB',
-        status: 'VERIFIED',
-        uploadedAt: 'Active In Vault',
-        issueDate: pastThreeYearsMinus10Days.toISOString().split('T')[0],
-        validityPeriod: 'Valid for 3 Years',
-        expiryDate: tenDaysFromNow.toISOString().split('T')[0],
-      },
-      {
-        id: 'vault-init-aadhaar',
-        name: 'Aadhaar Card',
-        type: 'Identity Proof',
-        fileName: 'aadhaar_card_masked.pdf',
-        fileSize: '1.2 MB',
-        status: 'VERIFIED',
-        uploadedAt: 'Active In Vault',
-        issueDate: '2018-05-12',
-        validityPeriod: 'Lifetime Validity',
-        expiryDate: 'Lifetime Validity',
-      },
-    ];
+    return [];
   });
 
   useEffect(() => {

@@ -83,10 +83,10 @@ export const ModeRecommendationPage: React.FC = () => {
                 fontSize: '0.8rem',
               }}
             >
-              Step 3 of 3
+              Step 4 of 4
             </span>
             <span style={{ fontSize: '0.85rem', color: 'var(--color-neutral-600)', fontWeight: 600 }}>
-              Interface Personalization
+              Interface Mode (A+ / A-)
             </span>
           </div>
           <span style={{ fontSize: '0.85rem', color: 'var(--color-neutral-500)' }}>NagrikQ Onboarding</span>
@@ -111,15 +111,15 @@ export const ModeRecommendationPage: React.FC = () => {
               <Sparkles size={16} /> Based on Age ({age} years)
             </div>
             <h1 style={{ fontSize: '1.75rem', color: 'var(--color-primary-900)', marginTop: '6px' }}>
-              We recommend {recommendedMode === 'modern' ? '⚡ Modern Mode' : '🧓 Simple Mode'}
+              We recommend {recommendedMode === 'modern' ? '⚡ A- Mode' : '🧓 A+ Mode'}
             </h1>
             <p style={{ color: 'var(--color-neutral-600)', fontSize: '0.95rem' }}>
-              You can accept our recommendation or manually choose your preferred interface style below.
+              Select A- for standard compact view or A+ for large accessible text & clear buttons.
             </p>
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px' }}>
-            {/* Modern Mode Option */}
+            {/* Modern Mode (A-) Option */}
             <div
               onClick={() => setSelectedMode('modern')}
               style={{
@@ -138,7 +138,7 @@ export const ModeRecommendationPage: React.FC = () => {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                   <span style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--color-primary-900)' }}>
-                    ⚡ Modern Mode
+                    ⚡ A- Mode
                   </span>
                   {recommendedMode === 'modern' && (
                     <span
@@ -159,7 +159,7 @@ export const ModeRecommendationPage: React.FC = () => {
                   Designed for users who prefer a compact digital dashboard with rich visual cards, metrics, and faster navigation.
                 </p>
                 <ul style={{ fontSize: '0.82rem', color: 'var(--color-neutral-700)', paddingLeft: '18px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                  <li>Comfortable density & 16px text</li>
+                  <li>Standard 16px text density</li>
                   <li>Widget cards & quick action badges</li>
                   <li>Subtle motion & dynamic ETA timers</li>
                 </ul>
@@ -172,7 +172,7 @@ export const ModeRecommendationPage: React.FC = () => {
               )}
             </div>
 
-            {/* Simple Mode Option */}
+            {/* Simple Mode (A+) Option */}
             <div
               onClick={() => setSelectedMode('simple')}
               style={{
@@ -191,7 +191,7 @@ export const ModeRecommendationPage: React.FC = () => {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                   <span style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--color-primary-900)' }}>
-                    🧓 Simple Mode
+                    🧓 A+ Mode
                   </span>
                   {recommendedMode === 'simple' && (
                     <span
@@ -212,7 +212,7 @@ export const ModeRecommendationPage: React.FC = () => {
                   Designed for citizens who prefer maximum clarity, high contrast, extra-large text, and simple step-by-step actions.
                 </p>
                 <ul style={{ fontSize: '0.82rem', color: 'var(--color-neutral-700)', paddingLeft: '18px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                  <li>Spacious layout & 18px+ readable text</li>
+                  <li>Spacious layout & 18px+ large readable text</li>
                   <li>Large 52px+ buttons with explicit labels</li>
                   <li>Minimal distractions & clear guidance</li>
                 </ul>
@@ -233,7 +233,7 @@ export const ModeRecommendationPage: React.FC = () => {
               onClick={() => handleFinishOnboarding(selectedMode)}
               icon={<ArrowRight size={20} />}
             >
-              Continue with {selectedMode === 'modern' ? 'Modern Mode' : 'Simple Mode'}
+              Continue with {selectedMode === 'modern' ? 'A- Mode' : 'A+ Mode'}
             </Button>
 
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', fontSize: '0.82rem', color: 'var(--color-neutral-500)' }}>

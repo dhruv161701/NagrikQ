@@ -188,15 +188,23 @@ async function processPhoneSubmission(
     }
 
     // SCENARIO 4: Attempting new link for unlinked phone -> Look up ALL profiles matching this phone number
-    const { data: matchedProfiles } = await supabaseAdmin
+    const { data: allProfiles } = await supabaseAdmin
       .from('profiles')
-      .select('id, full_name, email, phone, role')
-      .or(`phone.ilike.%${normalizedPhone}%,phone.ilike.%${rawPhone}%`);
+      .select('id, full_name, email, phone, role');
 
-    const { data: staffList } = await supabaseAdmin
+    const { data: allStaff } = await supabaseAdmin
       .from('staff_profiles')
-      .select('id, user_id, employee_id, verification_ref, phone, role')
-      .or(`phone.ilike.%${normalizedPhone}%`);
+      .select('id, user_id, employee_id, verification_ref, phone, role');
+
+    const matchedProfiles = (allProfiles || []).filter((p) => {
+      const pNorm = normalizePhoneNumber(p.phone || '');
+      return pNorm === normalizedPhone || (pNorm.length >= 10 && pNorm.endsWith(normalizedPhone));
+    });
+
+    const staffList = (allStaff || []).filter((s) => {
+      const sNorm = normalizePhoneNumber(s.phone || '');
+      return sNorm === normalizedPhone || (sNorm.length >= 10 && sNorm.endsWith(normalizedPhone));
+    });
 
     // Combine matching user accounts
     const allUsersMap = new Map<string, any>();
@@ -314,15 +322,25 @@ export async function handleCredentialsRetrieval(chatId: number): Promise<void> 
       return;
     }
 
-    const { data: matchedProfiles } = await supabaseAdmin
-      .from('profiles')
-      .select('id, full_name, email, phone, role')
-      .or(`phone.ilike.%${mapping.normalized_phone}%`);
+    const norm = mapping.normalized_phone;
 
-    const { data: staffList } = await supabaseAdmin
+    const { data: allProfiles } = await supabaseAdmin
+      .from('profiles')
+      .select('id, full_name, email, phone, role');
+
+    const { data: allStaff } = await supabaseAdmin
       .from('staff_profiles')
-      .select('id, user_id, employee_id, verification_ref, phone, role')
-      .or(`phone.ilike.%${mapping.normalized_phone}%`);
+      .select('id, user_id, employee_id, verification_ref, phone, role');
+
+    const matchedProfiles = (allProfiles || []).filter((p) => {
+      const pNorm = normalizePhoneNumber(p.phone || '');
+      return pNorm === norm || (pNorm.length >= 10 && pNorm.endsWith(norm));
+    });
+
+    const staffList = (allStaff || []).filter((s) => {
+      const sNorm = normalizePhoneNumber(s.phone || '');
+      return sNorm === norm || (sNorm.length >= 10 && sNorm.endsWith(norm));
+    });
 
     const allUsersMap = new Map<string, any>();
 
@@ -472,7 +490,13 @@ export function startTelegramPolling(): void {
   const pollLoop = async () => {
     while (isPollingActive) {
       try {
-        const res = await fetch(`${TELEGRAM_API_BASE}/getUpdates?offset=${lastOffset}&timeout=20`);
+        const res = await fetch(`${TELEGRAM_API_BASE}/getUpdates?offset=${lastOffset}&timeout=10`, {
+          signal: AbortSignal.timeout(15000),
+        });
+        if (!res.ok) {
+          await new Promise((resolve) => setTimeout(resolve, 5000));
+          continue;
+        }
         const data = await res.json();
 
         if (data.ok && Array.isArray(data.result) && data.result.length > 0) {
@@ -482,8 +506,8 @@ export function startTelegramPolling(): void {
           }
         }
       } catch (err: any) {
-        console.warn(`[TELEGRAM_POLL_WARN] ${err.message}`);
-        await new Promise((resolve) => setTimeout(resolve, 5000));
+        // Silently retry after short pause if network times out
+        await new Promise((resolve) => setTimeout(resolve, 3000));
       }
     }
   };

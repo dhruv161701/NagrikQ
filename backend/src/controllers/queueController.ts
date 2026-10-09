@@ -57,6 +57,101 @@ export const generateToken = async (
 
     // Count waiting tokens today to assign next sequential number and position
     const bookingDate = slotDate || new Date().toISOString().split('T')[0];
+    const todayStr = new Date().toISOString().split('T')[0];
+
+    // Helper to parse "09:30 AM" or "09:30 AM - 10:00 AM" into minutes from midnight
+    const parseTimeToMinutes = (tStr: string): number | null => {
+      if (!tStr) return null;
+      const match = tStr.trim().match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?$/i);
+      if (!match) return null;
+      let h = parseInt(match[1], 10);
+      const m = parseInt(match[2], 10);
+      const meridiem = match[3]?.toUpperCase();
+      if (meridiem === 'PM' && h < 12) h += 12;
+      if (meridiem === 'AM' && h === 12) h = 0;
+      return h * 60 + m;
+    };
+
+    // Rule 1: Past date restriction
+    if (bookingDate < todayStr) {
+      res.status(400).json({
+        success: false,
+        error: { code: 'PAST_DATE', message: 'Tokens cannot be booked for past dates.' },
+      });
+      return;
+    }
+
+    // Fetch service configuration for slot capacity & stopped dates
+    const { data: serviceConfig } = await supabaseAdmin
+      .from('services')
+      .select('stopped_booking_dates, is_booking_stopped, start_time, end_time, slot_duration_minutes, avg_processing_time_minutes, slot_capacity')
+      .eq('id', resolvedServiceId)
+      .maybeSingle();
+
+    // Rule 2: Stopped Booking Check for target date
+    if (serviceConfig) {
+      const isStopped =
+        (serviceConfig.stopped_booking_dates && serviceConfig.stopped_booking_dates.includes(bookingDate)) ||
+        (bookingDate === todayStr && serviceConfig.is_booking_stopped);
+
+      if (isStopped) {
+        res.status(400).json({
+          success: false,
+          error: {
+            code: 'BOOKING_STOPPED',
+            message: `Online bookings for this service are stopped for ${bookingDate} due to heavy counter crowd. Please visit the offline counter for walk-in token issuance.`,
+          },
+        });
+        return;
+      }
+    }
+
+    // Rule 3: 30-Minute Advance Booking Rule for Today's slots
+    if (bookingDate === todayStr && timeSlot) {
+      const slotStartTimeStr = timeSlot.split('-')[0].trim();
+      const slotStartMins = parseTimeToMinutes(slotStartTimeStr);
+      if (slotStartMins !== null) {
+        const now = new Date();
+        const currentMins = now.getHours() * 60 + now.getMinutes();
+        if (slotStartMins < currentMins + 30) {
+          res.status(400).json({
+            success: false,
+            error: {
+              code: 'SLOT_EXPIRED_OR_TOO_SOON',
+              message: 'Tokens must be booked at least 30 minutes in advance of slot start time (slot_start_time >= current_time + 30 minutes).',
+            },
+          });
+          return;
+        }
+      }
+    }
+
+    // Rule 4: Online Booking Capacity Limit
+    if (timeSlot && serviceConfig) {
+      const duration = serviceConfig.slot_duration_minutes || 30;
+      const procTime = serviceConfig.avg_processing_time_minutes || 5;
+      const configuredCap = serviceConfig.slot_capacity || Math.floor(Math.floor(duration / procTime) / 2);
+      const maxCapacity = Math.max(1, configuredCap);
+
+      const { count: currentSlotBookings } = await supabaseAdmin
+        .from('queue_tokens')
+        .select('*', { count: 'exact', head: true })
+        .eq('service_id', resolvedServiceId)
+        .or(`slot_date.eq.${bookingDate},queue_date.eq.${bookingDate}`)
+        .eq('time_slot', timeSlot)
+        .not('status', 'in', '("CANCELLED")');
+
+      if ((currentSlotBookings || 0) >= maxCapacity) {
+        res.status(400).json({
+          success: false,
+          error: {
+            code: 'SLOT_FULL',
+            message: `Time slot ${timeSlot} has reached maximum online capacity (${maxCapacity} bookings). Please select another slot.`,
+          },
+        });
+        return;
+      }
+    }
 
     // Check duplicate booking: same user cannot book the same service multiple times in a day
     const { data: existingBooking } = await supabaseAdmin

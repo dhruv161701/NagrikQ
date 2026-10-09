@@ -1,8 +1,8 @@
 import { apiClient } from './apiClient';
 
-const CLOUDINARY_CLOUD_NAME = 'dx3tt1c5v';
-const CLOUDINARY_API_KEY = '452682556522892';
-const CLOUDINARY_API_SECRET = 'xt4gUzLhHuCkHe1WfIziebRdxZg';
+const CLOUDINARY_CLOUD_NAME = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME || 'dx3tt1c5v';
+const CLOUDINARY_API_KEY = import.meta.env.VITE_CLOUDINARY_API_KEY || '452682556522892';
+const CLOUDINARY_API_SECRET = import.meta.env.VITE_CLOUDINARY_API_SECRET || 'xt4gUzLhHuCkHe1WfIziebRdxZg';
 
 export interface CloudinaryUploadResult {
   secureUrl: string;

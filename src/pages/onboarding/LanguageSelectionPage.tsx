@@ -68,7 +68,7 @@ export const LanguageSelectionPage: React.FC = () => {
                 fontSize: '0.8rem',
               }}
             >
-              Step 1 of 3
+              Step 1 of 4
             </span>
             <span style={{ fontSize: '0.85rem', color: 'var(--color-neutral-600)', fontWeight: 600 }}>
               Profile Personalization

@@ -22,7 +22,6 @@ import {
   Volume2,
   VolumeX,
   Plus,
-  Printer,
   QrCode,
   RefreshCw,
   AlertCircle,
@@ -400,7 +399,8 @@ export const UserQueuePage: React.FC = () => {
       const matchUser = uid && q.citizenId === uid;
       const matchService = q.serviceId === targetService.id;
       const matchDate = q.slotDate === effectiveDate || (!q.slotDate && effectiveDate === new Date().toISOString().split('T')[0]);
-      return matchUser && matchService && matchDate && q.status !== 'CANCELLED';
+      const isPendingOrServing = ['WAITING', 'CALLED', 'IN_SERVICE'].includes(q.status);
+      return matchUser && matchService && matchDate && isPendingOrServing;
     });
   }, [queueTokens, targetService, selectedSlotDate, userId, currentUser?.id]);
 
@@ -418,12 +418,13 @@ export const UserQueuePage: React.FC = () => {
       const matchUser = uid && q.citizenId === uid;
       const matchService = q.serviceId === targetService.id;
       const matchDate = q.slotDate === effectiveDate || (!q.slotDate && effectiveDate === new Date().toISOString().split('T')[0]);
-      return matchUser && matchService && matchDate && q.status !== 'CANCELLED';
+      const isPendingOrServing = ['WAITING', 'CALLED', 'IN_SERVICE'].includes(q.status);
+      return matchUser && matchService && matchDate && isPendingOrServing;
     });
 
     if (existingBooking) {
       setBookingError(
-        `You already have a booking (Token ${existingBooking.tokenNumber} for ${existingBooking.timeSlot || 'Scheduled Slot'}) for ${targetService.name} on ${effectiveDate}. The same user cannot book the same service multiple times on the same day.`
+        `You currently have an active token (${existingBooking.tokenNumber} - ${existingBooking.status}) for ${targetService.name}. Please wait for your service to finish before booking a new slot.`
       );
       return;
     }
@@ -930,15 +931,6 @@ export const UserQueuePage: React.FC = () => {
                   style={{ fontWeight: 700 }}
                 >
                   Get Directions
-                </Button>
-
-                <Button
-                  variant="outline"
-                  onClick={() => window.print()}
-                  icon={<Printer size={17} />}
-                  style={{ color: 'white', borderColor: 'rgba(255,255,255,0.3)' }}
-                >
-                  Print Token Slip
                 </Button>
               </div>
 
@@ -1449,19 +1441,20 @@ export const UserQueuePage: React.FC = () => {
                       style={{
                         padding: '8px 10px',
                         borderRadius: '8px',
-                        border: `1.5px solid ${
+                        border: `2px solid ${
                           isSelected
-                            ? 'var(--color-saffron-600)'
+                            ? '#D97706'
                             : isFull
-                            ? 'var(--color-neutral-200)'
-                            : 'var(--color-primary-300)'
+                            ? '#E5E7EB'
+                            : '#93C5FD'
                         }`,
                         backgroundColor: isSelected
-                          ? 'var(--color-saffron-100)'
+                          ? '#F59E0B'
                           : isFull
-                          ? 'var(--color-neutral-100)'
+                          ? '#F3F4F6'
                           : 'white',
-                        color: isFull ? 'var(--color-neutral-400)' : 'var(--color-neutral-900)',
+                        color: isSelected ? 'white' : isFull ? '#9CA3AF' : '#1E293B',
+                        boxShadow: isSelected ? '0 4px 12px rgba(245, 158, 11, 0.4)' : 'none',
                         cursor: isFull ? 'not-allowed' : 'pointer',
                         display: 'flex',
                         flexDirection: 'column',
@@ -1470,16 +1463,16 @@ export const UserQueuePage: React.FC = () => {
                         transition: 'all 0.15s ease',
                       }}
                     >
-                      <span style={{ fontSize: '0.8rem', fontWeight: 700 }}>{slot}</span>
+                      <span style={{ fontSize: '0.82rem', fontWeight: 800 }}>{slot}</span>
                       <span
                         style={{
                           fontSize: '10px',
-                          fontWeight: 600,
-                          color: isFull
-                            ? 'var(--color-danger-600)'
-                            : isSelected
-                            ? 'var(--color-saffron-800)'
-                            : 'var(--color-success-700)',
+                          fontWeight: 700,
+                          color: isSelected
+                            ? '#FEF3C7'
+                            : isFull
+                            ? '#DC2626'
+                            : '#059669',
                         }}
                       >
                         {isFull ? 'CAPACITY FULL' : `${remaining}/${slotCapacity} spots`}

@@ -186,6 +186,24 @@ export const AdminServicesPage: React.FC = () => {
     setSlotSuccessMsg('');
     setSlotSubmitting(true);
 
+    // Time validation
+    const parseTimeToMinutes = (tStr: string): number => {
+      const match = tStr.trim().match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+      if (!match) return 0;
+      let h = parseInt(match[1], 10);
+      const m = parseInt(match[2], 10);
+      const meridiem = match[3].toUpperCase();
+      if (meridiem === 'PM' && h < 12) h += 12;
+      if (meridiem === 'AM' && h === 12) h = 0;
+      return h * 60 + m;
+    };
+
+    if (parseTimeToMinutes(endTime) <= parseTimeToMinutes(startTime)) {
+      setSlotErrorMsg('Service End Time must be strictly later than Service Start Time.');
+      setSlotSubmitting(false);
+      return;
+    }
+
     // Validation: online capacity check
     const citizensPerSlot = Math.floor(slotDuration / avgProcTime);
     const onlineCapacity = Math.floor(citizensPerSlot / 2);
@@ -754,23 +772,23 @@ export const AdminServicesPage: React.FC = () => {
                   onChange={(e) => setSlotDuration(Number(e.target.value))}
                   style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--color-border)', backgroundColor: 'white' }}
                 >
-                  {[20, 30, 35, 40, 45, 50, 60].map((d) => (
-                    <option key={d} value={d}>{d} Minutes</option>
+                  {[30, 35, 40, 45, 50, 55, 60].map((d) => (
+                    <option key={d} value={d}>{d} minutes</option>
                   ))}
                 </select>
               </div>
 
               <div>
                 <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, color: 'var(--color-neutral-800)', marginBottom: '4px' }}>
-                  Avg Processing Time / Citizen (Mins)
+                  Average Processing Time per Citizen (mins)
                 </label>
                 <select
                   value={avgProcTime}
                   onChange={(e) => setAvgProcTime(Number(e.target.value))}
                   style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--color-border)', backgroundColor: 'white' }}
                 >
-                  {[3, 5, 8, 10, 15].map((m) => (
-                    <option key={m} value={m}>{m} Minutes / Person</option>
+                  {[3, 5, 6, 8, 10, 15].map((m) => (
+                    <option key={m} value={m}>{m} minutes</option>
                   ))}
                 </select>
               </div>
@@ -780,16 +798,16 @@ export const AdminServicesPage: React.FC = () => {
             <div style={{ backgroundColor: 'var(--color-primary-50)', padding: '14px 16px', borderRadius: '10px', border: '1px solid var(--color-primary-200)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.88rem', fontWeight: 800, color: 'var(--color-primary-900)', marginBottom: '6px' }}>
                 <Users size={16} color="var(--color-primary-700)" />
-                Slot Capacity Formula Preview:
+                Slot Capacity Calculations Preview:
               </div>
               <div style={{ fontSize: '0.82rem', color: 'var(--color-primary-900)', lineHeight: '1.6' }}>
-                • Total Citizens per {slotDuration}m slot: <strong>{citizensPerSlotCalc} citizens</strong> ({slotDuration}m ÷ {avgProcTime}m) <br />
-                • <strong>Online Token Capacity (50%): {onlineCapCalc} tokens per slot</strong> <br />
-                • Offline Walk-in Capacity (50%): {offlineCapCalc} walk-in tokens per slot
+                • Theoretical capacity per slot: <strong>{citizensPerSlotCalc} citizens</strong> (floor({slotDuration} ÷ {avgProcTime}))<br />
+                • Reserved for offline citizens: <strong>{offlineCapCalc} citizens</strong><br />
+                • Maximum online bookings: <strong>{onlineCapCalc} citizens</strong> (floor({citizensPerSlotCalc} ÷ 2))
               </div>
               {onlineCapCalc <= 0 && (
                 <div style={{ color: 'var(--color-danger-700)', fontWeight: 800, fontSize: '0.8rem', marginTop: '6px' }}>
-                  ⚠️ Warning: Capacity evaluates to 0. Please decrease processing time or increase slot duration.
+                  ⚠️ Warning: Calculated online capacity is zero. Please decrease processing time or increase slot duration before saving.
                 </div>
               )}
             </div>

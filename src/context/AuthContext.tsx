@@ -32,8 +32,25 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [currentUser, setCurrentUser] = useState<User | null>(() => {
+    try {
+      const saved = localStorage.getItem('nagrikq_active_user');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
   const [isLoading, setIsLoading] = useState<boolean>(true);
+
+  // Sync currentUser with localStorage for persistent sessions
+  const updateActiveUser = (user: User | null) => {
+    setCurrentUser(user);
+    if (user) {
+      localStorage.setItem('nagrikq_active_user', JSON.stringify(user));
+    } else {
+      localStorage.removeItem('nagrikq_active_user');
+    }
+  };
 
   // Convert internal UserProfile to application User
   const mapProfileToUser = (profile: UserProfile): User => {
@@ -63,10 +80,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const profile = await authService.fetchProfileForUser(session.user);
           if (isMounted) {
             const mappedUser = mapProfileToUser(profile);
-            console.log('[AUTH] Authenticated user loaded:', mappedUser.email, '| Role:', mappedUser.role, '| Onboarding:', mappedUser.onboardingCompleted);
-            setCurrentUser(mappedUser);
+            console.log('[AUTH] Authenticated user loaded:', mappedUser.email, '| Role:', mappedUser.role);
+            updateActiveUser(mappedUser);
 
-            // Clean OAuth access_token hash from browser URL to prevent token leakage and browser security warnings
             if (typeof window !== 'undefined' && window.location.hash && window.location.hash.includes('access_token')) {
               window.history.replaceState(null, '', window.location.pathname + window.location.search);
             }
@@ -77,15 +93,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           if (isMounted) setIsLoading(false);
         }
       } else {
-        console.log(`[AUTH] Session event '${eventName}': No user in session`);
         if (isMounted) {
-          setCurrentUser(null);
           setIsLoading(false);
         }
       }
     };
 
-    // 1. Restore initial session using getSession()
     const initAuth = async () => {
       try {
         const { data, error } = await supabase.auth.getSession();
@@ -94,17 +107,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
         if (isMounted) {
           if (data?.session?.user) {
-            console.log('[AUTH] Initial session restored via getSession()');
             await handleSession(data.session, 'GET_SESSION');
           } else {
-            console.log('[AUTH] Initial getSession() returned no user. Waiting for auth state listener...');
-            // Wait for onAuthStateChange (which handles hash detection) or resolve as unauthenticated after a short frame
-            setTimeout(() => {
-              if (isMounted && isLoading) {
-                // If onAuthStateChange hasn't found a session yet, release loading state
-                setIsLoading(false);
-              }
-            }, 500);
+            setIsLoading(false);
           }
         }
       } catch (err) {
@@ -115,7 +120,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     initAuth();
 
-    // 2. Subscribe to Supabase auth state changes (OAuth callback, login, logout, token refresh)
     const { data: authListener } = supabase.auth.onAuthStateChange(
       async (event, session) => {
         console.log('[AUTH] onAuthStateChange event received:', event);
@@ -133,7 +137,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         } else if (event === 'SIGNED_OUT') {
           console.log('[AUTH] User signed out');
           if (isMounted) {
-            setCurrentUser(null);
+            updateActiveUser(null);
             setIsLoading(false);
           }
         }
@@ -160,7 +164,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setIsLoading(true);
     const res = await authService.signInWithEmail(email, pass);
     if (res.user) {
-      setCurrentUser(mapProfileToUser(res.user));
+      updateActiveUser(mapProfileToUser(res.user));
     }
     setIsLoading(false);
     return { error: res.error };
@@ -170,7 +174,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setIsLoading(true);
     const res = await authService.signUpWithEmail(fullName, email, pass);
     if (res.user) {
-      setCurrentUser(mapProfileToUser(res.user));
+      updateActiveUser(mapProfileToUser(res.user));
     }
     setIsLoading(false);
     return { error: res.error, needVerification: res.needVerification };
@@ -191,6 +195,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }) => {
     if (!currentUser) return;
 
+    // Retrieve phone if saved during onboarding
+    const onboardingPhone = sessionStorage.getItem('onboarding_phone');
+    const formattedPhone = onboardingPhone ? `+91 ${onboardingPhone}` : currentUser.phone;
+
     // Calculate age from DOB string (DD/MM/YYYY or YYYY-MM-DD)
     let calculatedAge = 30;
     if (details.dob) {
@@ -206,6 +214,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const updatedUser: User = {
       ...currentUser,
+      phone: formattedPhone,
       preferredLanguage: details.language,
       dob: details.dob,
       age: calculatedAge,
@@ -213,7 +222,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       onboardingCompleted: true,
     };
 
-    setCurrentUser(updatedUser);
+    updateActiveUser(updatedUser);
 
     const profile: UserProfile = {
       id: updatedUser.id,
@@ -242,7 +251,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       ...targetUser,
       onboardingCompleted: true,
     };
-    setCurrentUser(userObj);
+    updateActiveUser(userObj);
 
     authService.saveLocalProfile({
       id: userObj.id,
@@ -264,7 +273,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         ...targetUser,
         onboardingCompleted: true,
       };
-      setCurrentUser(userObj);
+      updateActiveUser(userObj);
 
       authService.saveLocalProfile({
         id: userObj.id,
@@ -283,7 +292,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const logout = async () => {
     setIsLoading(true);
     await authService.signOut();
-    setCurrentUser(null);
+    updateActiveUser(null);
     setIsLoading(false);
   };
 

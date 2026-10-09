@@ -63,11 +63,11 @@ export const UserSettingsPage: React.FC = () => {
             }}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontWeight: 700, fontSize: '1.1rem' }}>⚡ Modern Mode</span>
+              <span style={{ fontWeight: 700, fontSize: '1.1rem' }}>⚡ A- Mode</span>
               {uiMode === 'modern' && <CheckCircle size={20} style={{ color: 'var(--color-primary-700)' }} />}
             </div>
             <p style={{ fontSize: '0.85rem', color: 'var(--color-neutral-600)' }}>
-              Designed for quick navigation, modern cards, compact padding, and rich dashboard widgets.
+              Designed for quick navigation, compact padding, and rich dashboard widgets.
             </p>
           </div>
 
@@ -85,7 +85,7 @@ export const UserSettingsPage: React.FC = () => {
             }}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontWeight: 700, fontSize: '1.1rem' }}>🧓 Simple Mode</span>
+              <span style={{ fontWeight: 700, fontSize: '1.1rem' }}>🧓 A+ Mode</span>
               {uiMode === 'simple' && <CheckCircle size={20} style={{ color: 'var(--color-primary-700)' }} />}
             </div>
             <p style={{ fontSize: '0.85rem', color: 'var(--color-neutral-600)' }}>
