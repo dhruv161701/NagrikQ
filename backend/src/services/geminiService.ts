@@ -1,7 +1,37 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
-const getApiKey = (): string => {
+export const getApiKey = (): string => {
   return process.env.GEMINI_API_KEY || '';
+};
+
+export const getApiKeyDiagnostic = (): { isValidKeyFormat: boolean; credentialType: string; message: string } => {
+  const key = getApiKey();
+  if (!key) {
+    return {
+      isValidKeyFormat: false,
+      credentialType: 'NONE',
+      message: 'GEMINI_API_KEY is not configured in backend environment.',
+    };
+  }
+  if (key.startsWith('AQ.') || key.startsWith('ya29.')) {
+    return {
+      isValidKeyFormat: false,
+      credentialType: 'OAUTH_ACCESS_TOKEN',
+      message: 'Configured GEMINI_API_KEY is an OAuth access token, which Google Generative Language API rejects with ACCESS_TOKEN_TYPE_UNSUPPORTED. Replace with a standard Gemini API key from Google AI Studio starting with "AIzaSy".',
+    };
+  }
+  if (!key.startsWith('AIza')) {
+    return {
+      isValidKeyFormat: false,
+      credentialType: 'NON_STANDARD_FORMAT',
+      message: 'Configured GEMINI_API_KEY does not match standard Gemini API Key format (starting with "AIza").',
+    };
+  }
+  return {
+    isValidKeyFormat: true,
+    credentialType: 'API_KEY',
+    message: 'Valid Gemini API Key format configured.',
+  };
 };
 
 const getGenAI = (): GoogleGenerativeAI => {
@@ -10,58 +40,85 @@ const getGenAI = (): GoogleGenerativeAI => {
 };
 
 const CANDIDATE_CHAT_MODELS = [
-  'gemini-3.5-flash',
-  'gemini-3.5-flash-lite',
-  'gemini-3.1-flash-lite',
-  'gemini-3.6-flash',
-  'gemini-flash-lite-latest',
-  'gemini-3-flash-preview',
+  'gemini-1.5-flash',
+  'gemini-2.0-flash',
+  'gemini-2.5-flash',
+  'gemini-1.5-pro',
 ];
 
 export const geminiChatModel = {
   generateContent: async (prompt: string) => {
+    const diag = getApiKeyDiagnostic();
+    if (!diag.isValidKeyFormat) {
+      console.warn(`[GEMINI_AUTH_WARN] ${diag.message}`);
+      throw new Error(`GEMINI_AUTH_ERROR: ${diag.message}`);
+    }
+
     const genAI = getGenAI();
+    let lastErr: any = null;
     for (const mName of CANDIDATE_CHAT_MODELS) {
       try {
         const model = genAI.getGenerativeModel({ model: mName });
         return await model.generateContent(prompt);
-      } catch {
-        // try next candidate
+      } catch (err: any) {
+        lastErr = err;
+        if (err?.status === 401 || err?.message?.includes('API key not valid') || err?.message?.includes('ACCESS_TOKEN_TYPE_UNSUPPORTED')) {
+          console.error('[GEMINI_AUTH_ERROR] Authentication failed. Invalid API Key.');
+          throw new Error('GEMINI_AUTH_ERROR: Invalid API key credentials.');
+        }
       }
     }
-    const fallbackModel = genAI.getGenerativeModel({ model: CANDIDATE_CHAT_MODELS[0] });
-    return await fallbackModel.generateContent(prompt);
+    throw lastErr || new Error('All candidate Gemini models failed.');
   },
 };
 
 export const geminiEmbeddingModel = {
   embedContent: async (content: any) => {
+    const diag = getApiKeyDiagnostic();
+    if (!diag.isValidKeyFormat) {
+      return { embedding: { values: [] } };
+    }
+
     const genAI = getGenAI();
-    const model = genAI.getGenerativeModel({ model: 'gemini-embedding-001' });
+    const candidateEmbeddingModels = ['text-embedding-004', 'embedding-001'];
     const payload =
       typeof content === 'string'
-        ? { content: { parts: [{ text: content }] }, outputDimensionality: 768 }
-        : { ...content, outputDimensionality: 768 };
-    return await model.embedContent(payload as any);
+        ? { content: { parts: [{ text: content }] } }
+        : content;
+
+    for (const emName of candidateEmbeddingModels) {
+      try {
+        const model = genAI.getGenerativeModel({ model: emName });
+        return await model.embedContent(payload as any);
+      } catch (err: any) {
+        if (err?.status === 401 || err?.message?.includes('API key not valid')) {
+          throw err;
+        }
+      }
+    }
+    return { embedding: { values: [] } };
   },
 };
 
 export const generateEmbedding = async (text: string): Promise<number[]> => {
-  const apiKey = getApiKey();
-  if (!apiKey) {
-    console.warn('[WARN] GEMINI_API_KEY not configured. Returning empty embedding.');
+  const diag = getApiKeyDiagnostic();
+  if (!diag.isValidKeyFormat) {
     return [];
   }
 
   try {
     const result = await geminiEmbeddingModel.embedContent(text);
-    const embedding = result.embedding;
+    const embedding = result?.embedding;
     if (!embedding || !embedding.values) {
-      throw new Error('Failed to generate embedding: no embedding values returned');
+      return [];
     }
     return embedding.values;
   } catch (err: any) {
-    console.error('[ERR] Failed to generate embedding from Gemini:', err?.message || err);
+    if (err?.message?.includes('ACCESS_TOKEN_TYPE_UNSUPPORTED') || err?.status === 401) {
+      console.warn('[GEMINI_EMBEDDING_AUTH_NOTICE] Gemini embedding skipped due to incompatible OAuth credential.');
+    } else {
+      console.warn('[ERR] Failed to generate embedding from Gemini:', err?.message || err);
+    }
     return [];
   }
 };

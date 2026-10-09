@@ -701,17 +701,17 @@ export const EmployeeApplicationsPage: React.FC = () => {
                             gap: '4px',
                           }}
                         >
-                          ✓ Completed
+                          ✓ Turn Completed
                         </span>
                         <Button
                           variant="outline"
                           size="sm"
                           onClick={() => handleOpenDocsModal(app)}
                           icon={<FileText size={14} />}
-                          style={{ fontWeight: 700, padding: '6px 12px', fontSize: '12px' }}
-                          title="Verify or inspect physical documents"
+                          style={{ fontWeight: 600, padding: '5px 10px', fontSize: '11px' }}
+                          title="View historical document records"
                         >
-                          Verify Docs
+                          View History
                         </Button>
                       </div>
                     ) : app.status === 'REJECTED' ? (
@@ -730,17 +730,17 @@ export const EmployeeApplicationsPage: React.FC = () => {
                             gap: '4px',
                           }}
                         >
-                          ✕ Rejected
+                          ✕ Cancelled / Rejected
                         </span>
                         <Button
                           variant="outline"
                           size="sm"
                           onClick={() => handleOpenDocsModal(app)}
                           icon={<FileText size={14} />}
-                          style={{ fontWeight: 700, padding: '6px 12px', fontSize: '12px' }}
-                          title="Re-check physical documents"
+                          style={{ fontWeight: 600, padding: '5px 10px', fontSize: '11px' }}
+                          title="View historical document records"
                         >
-                          Re-check Docs
+                          View History
                         </Button>
                       </div>
                     ) : (
@@ -837,18 +837,24 @@ export const EmployeeApplicationsPage: React.FC = () => {
               )}
             </div>
 
-            {/* Physical Document Verification at Counter */}
+            {/* Physical Document Verification at Counter / Historical Archive */}
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '8px' }}>
                 <div>
                   <h3 style={{ fontSize: '1.15rem', color: 'var(--color-primary-900)', fontWeight: 800, margin: 0 }}>
-                    Physical Hard-Copy Document Check ({activeInspectDocs.length})
+                    {inspectApp.status === 'APPROVED' || inspectApp.status === 'COMPLETED' || inspectApp.status === 'REJECTED'
+                      ? `Archived Document Record (${activeInspectDocs.length})`
+                      : `Physical Hard-Copy Document Check (${activeInspectDocs.length})`}
                   </h3>
                   <span style={{ fontSize: '0.85rem', color: 'var(--color-neutral-600)' }}>
-                    Physically inspect each original document presented by the applicant at Counter {activeCounter}. Mark each as <strong>OK</strong> or <strong>NOT OK</strong>.
+                    {inspectApp.status === 'APPROVED' || inspectApp.status === 'COMPLETED' || inspectApp.status === 'REJECTED'
+                      ? 'Historical record: Citizen turn has ended. Showing verified documents archive and audit trail.'
+                      : `Physically inspect each original document presented by the applicant at Counter ${activeCounter}. Mark each as OK or NOT OK.`}
                   </span>
                 </div>
-                <Badge variant="warning">Physical Counter Inspection</Badge>
+                <Badge variant={inspectApp.status === 'APPROVED' || inspectApp.status === 'COMPLETED' ? 'success' : inspectApp.status === 'REJECTED' ? 'danger' : 'warning'}>
+                  {inspectApp.status === 'APPROVED' || inspectApp.status === 'COMPLETED' ? 'Turn Completed (Historical)' : inspectApp.status === 'REJECTED' ? 'Cancelled (Historical)' : 'Physical Counter Inspection'}
+                </Badge>
               </div>
 
               {/* Validation alert banner if officer has not marked all docs */}
@@ -991,7 +997,7 @@ export const EmployeeApplicationsPage: React.FC = () => {
               )}
             </div>
 
-            {/* SINGLE "DONE" ACTION */}
+            {/* FOOTER ACTIONS */}
             <div
               style={{
                 borderTop: '1px solid var(--color-neutral-200)',
@@ -1003,32 +1009,50 @@ export const EmployeeApplicationsPage: React.FC = () => {
                 gap: '12px',
               }}
             >
-              <div style={{ display: 'flex', flexDirection: 'column' }}>
-                <span style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--color-primary-900)' }}>
-                  Physical Document Check Result:
-                </span>
-                <span style={{ fontSize: '0.78rem', color: 'var(--color-neutral-500)' }}>
-                  If all documents are OK, service proceeds. If any document is NOT OK, process stops.
-                </span>
-              </div>
+              {inspectApp.status === 'APPROVED' || inspectApp.status === 'COMPLETED' || inspectApp.status === 'REJECTED' ? (
+                <>
+                  <div style={{ display: 'flex', flexDirection: 'column' }}>
+                    <span style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--color-neutral-700)' }}>
+                      Archived Application Record
+                    </span>
+                    <span style={{ fontSize: '0.78rem', color: 'var(--color-neutral-500)' }}>
+                      Citizen turn completed. This is a read-only historical record.
+                    </span>
+                  </div>
+                  <Button variant="secondary" onClick={() => setIsDocsModalOpen(false)}>
+                    Close
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <div style={{ display: 'flex', flexDirection: 'column' }}>
+                    <span style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--color-primary-900)' }}>
+                      Physical Document Check Result:
+                    </span>
+                    <span style={{ fontSize: '0.78rem', color: 'var(--color-neutral-500)' }}>
+                      If all documents are OK, service proceeds. If any document is NOT OK, process stops.
+                    </span>
+                  </div>
 
-              <div style={{ display: 'flex', gap: '10px' }}>
-                <Button variant="secondary" onClick={() => setIsDocsModalOpen(false)}>
-                  Cancel
-                </Button>
-                <Button
-                  variant="primary"
-                  onClick={handleDonePhysicalCheck}
-                  icon={<CheckCircle size={18} />}
-                  style={{
-                    padding: '10px 32px',
-                    fontWeight: 800,
-                    fontSize: '0.95rem',
-                  }}
-                >
-                  DONE
-                </Button>
-              </div>
+                  <div style={{ display: 'flex', gap: '10px' }}>
+                    <Button variant="secondary" onClick={() => setIsDocsModalOpen(false)}>
+                      Cancel
+                    </Button>
+                    <Button
+                      variant="primary"
+                      onClick={handleDonePhysicalCheck}
+                      icon={<CheckCircle size={18} />}
+                      style={{
+                        padding: '10px 32px',
+                        fontWeight: 800,
+                        fontSize: '0.95rem',
+                      }}
+                    >
+                      DONE
+                    </Button>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         </Modal>

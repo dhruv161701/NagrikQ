@@ -346,9 +346,26 @@ export const stopBookingToday = async (req: Request, res: Response): Promise<voi
       // 1. Fetch current service
       const { data: service } = await supabaseAdmin
         .from('services')
-        .select('name, stopped_booking_dates, is_booking_stopped')
+        .select('name, stopped_booking_dates, is_booking_stopped, end_time')
         .eq('id', id)
         .maybeSingle();
+
+      // Check if today's booking window has already finished
+      const { currentTimeMinutes } = getOfficeLocalTime();
+      const { parseTimeToMinutes } = await import('../utils/timezone');
+      const serviceEndTimeStr = service?.end_time || '05:00 PM';
+      const serviceEndMins = parseTimeToMinutes(serviceEndTimeStr) || 1020; // 5:00 PM default
+
+      if (targetDate === localDateStr && currentTimeMinutes >= serviceEndMins) {
+        res.status(400).json({
+          success: false,
+          error: {
+            code: 'BOOKING_WINDOW_CLOSED',
+            message: `Today's booking slots have already finished (office hours ended at ${serviceEndTimeStr}). Bookings cannot be stopped for a period that is already over.`,
+          },
+        });
+        return;
+      }
 
       const currentDates: string[] = service?.stopped_booking_dates || [];
       const updatedDates = Array.from(new Set([...currentDates, targetDate]));
@@ -485,6 +502,215 @@ export const resumeBookingToday = async (req: Request, res: Response): Promise<v
         message: `Online bookings for ${service?.name || 'this service'} have been resumed for ${targetDate}.`,
       } as ApiResponse);
     });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: err.message } });
+  }
+};
+
+/**
+ * Requirement 15: Dynamic Time Slots Calculation
+ * Computes available booking time slots based on Admin configuration:
+ * start_time, end_time, slot_duration_minutes, break_time, and capacity.
+ * Checks holiday closures and stopped bookings.
+ */
+export const getAvailableSlotsForService = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const { date, officeId, state } = req.query;
+    const { getOfficeLocalTime, parseTimeToMinutes, isSlotInPastOrTooSoon } = await import('../utils/timezone');
+    const { isOfficeClosedOnDate } = await import('./holidayController');
+
+    const { localDateStr, currentTimeMinutes } = getOfficeLocalTime();
+    const targetDate = (date as string) || localDateStr;
+
+    // 1. Fetch service details
+    const { data: service, error } = await supabaseAdmin
+      .from('services')
+      .select('*')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (error || !service) {
+      res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Service not found.' } });
+      return;
+    }
+
+    // 2. Check if office is closed for a holiday
+    const holidayClosure = await isOfficeClosedOnDate(targetDate, state as string, officeId as string);
+    if (holidayClosure.isClosed && holidayClosure.holiday) {
+      res.json({
+        success: true,
+        data: {
+          serviceId: id,
+          date: targetDate,
+          isHoliday: true,
+          holidayName: holidayClosure.holiday.name,
+          isStopped: false,
+          isWindowClosed: true,
+          slots: [],
+          message: `Office is closed on ${targetDate} for ${holidayClosure.holiday.name}.`,
+        },
+      } as ApiResponse);
+      return;
+    }
+
+    // 3. Check if booking is stopped
+    const isStoppedInService =
+      (service.stopped_booking_dates && service.stopped_booking_dates.includes(targetDate)) ||
+      (targetDate === localDateStr && service.is_booking_stopped);
+
+    if (isStoppedInService) {
+      res.json({
+        success: true,
+        data: {
+          serviceId: id,
+          date: targetDate,
+          isHoliday: false,
+          isStopped: true,
+          isWindowClosed: true,
+          slots: [],
+          message: `Online bookings for this service are stopped for ${targetDate}.`,
+        },
+      } as ApiResponse);
+      return;
+    }
+
+    // 4. Determine schedule parameters
+    let startTimeStr = service.start_time || '09:30 AM';
+    let endTimeStr = service.end_time || '05:00 PM';
+    let durationMins = service.slot_duration_minutes || 30;
+    let procTimeMins = service.avg_processing_time_minutes || 5;
+    let enableBreak = service.enable_break_time !== false;
+    let breakStartStr = service.break_start_time || '01:00 PM';
+    let breakEndStr = service.break_end_time || '02:00 PM';
+
+    if (officeId) {
+      try {
+        const { data: scoped } = await supabaseAdmin
+          .from('service_slot_configs')
+          .select('*')
+          .eq('service_id', id)
+          .eq('office_id', officeId)
+          .maybeSingle();
+        if (scoped) {
+          startTimeStr = scoped.start_time || startTimeStr;
+          endTimeStr = scoped.end_time || endTimeStr;
+          durationMins = scoped.slot_duration_minutes || durationMins;
+          procTimeMins = scoped.avg_processing_time_minutes || procTimeMins;
+          enableBreak = scoped.enable_break_time !== false;
+          breakStartStr = scoped.break_start_time || breakStartStr;
+          breakEndStr = scoped.break_end_time || breakEndStr;
+        }
+      } catch {}
+    }
+
+    const theoreticalCap = Math.floor(durationMins / procTimeMins);
+    const onlineCap = Math.floor(theoreticalCap / 2);
+    const capacityPerSlot = Math.max(1, service.slot_capacity || onlineCap);
+
+    const startM = parseTimeToMinutes(startTimeStr) || 570;
+    const endM = parseTimeToMinutes(endTimeStr) || 1020;
+    const breakStartM = enableBreak ? parseTimeToMinutes(breakStartStr) || 780 : -1;
+    const breakEndM = enableBreak ? parseTimeToMinutes(breakEndStr) || 840 : -1;
+
+    const isToday = targetDate === localDateStr;
+    const isWindowClosed = isToday && currentTimeMinutes >= endM;
+
+    // 5. Fetch existing bookings for this service on targetDate
+    const { data: bookedTokens } = await supabaseAdmin
+      .from('queue_tokens')
+      .select('time_slot')
+      .eq('service_id', id)
+      .eq('slot_date', targetDate)
+      .not('status', 'in', '("CANCELLED","EXPIRED")');
+
+    const bookingsCountMap: Record<string, number> = {};
+    if (Array.isArray(bookedTokens)) {
+      for (const t of bookedTokens) {
+        if (t.time_slot) {
+          bookingsCountMap[t.time_slot] = (bookingsCountMap[t.time_slot] || 0) + 1;
+        }
+      }
+    }
+
+    // 6. Generate time slots
+    const formatTimePart = (m: number): string => {
+      let h = Math.floor(m / 60);
+      const min = m % 60;
+      const meridiem = h >= 12 ? 'PM' : 'AM';
+      let dh = h % 12;
+      if (dh === 0) dh = 12;
+      return `${String(dh).padStart(2, '0')}:${String(min).padStart(2, '0')} ${meridiem}`;
+    };
+
+    const slotsList: Array<{
+      slot: string;
+      slotCapacity: number;
+      bookedCount: number;
+      remaining: number;
+      isAvailable: boolean;
+      status: 'AVAILABLE' | 'FULL' | 'ELAPSED';
+      reason?: string;
+    }> = [];
+
+    for (let cur = startM; cur + durationMins <= endM; cur += durationMins) {
+      const slotEnd = cur + durationMins;
+
+      // Check break overlap
+      if (enableBreak && breakStartM !== -1 && breakEndM !== -1) {
+        if (cur < breakEndM && slotEnd > breakStartM) {
+          continue; // skip break window
+        }
+      }
+
+      const slotStr = `${formatTimePart(cur)} - ${formatTimePart(slotEnd)}`;
+      const booked = bookingsCountMap[slotStr] || 0;
+      const remaining = Math.max(0, capacityPerSlot - booked);
+
+      let status: 'AVAILABLE' | 'FULL' | 'ELAPSED' = 'AVAILABLE';
+      let isAvailable = true;
+      let reason: string | undefined;
+
+      if (isToday) {
+        const slotCheck = isSlotInPastOrTooSoon(targetDate, slotStr, 30);
+        if (slotCheck.isPastOrTooSoon) {
+          status = 'ELAPSED';
+          isAvailable = false;
+          reason = slotCheck.reason || 'Slot time has elapsed';
+        }
+      }
+
+      if (isAvailable && remaining === 0) {
+        status = 'FULL';
+        isAvailable = false;
+        reason = 'Slot is fully booked';
+      }
+
+      slotsList.push({
+        slot: slotStr,
+        slotCapacity: capacityPerSlot,
+        bookedCount: booked,
+        remaining,
+        isAvailable,
+        status,
+        reason,
+      });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        serviceId: id,
+        date: targetDate,
+        isToday,
+        isHoliday: false,
+        isStopped: false,
+        isWindowClosed,
+        slotCapacity: capacityPerSlot,
+        slotDurationMinutes: durationMins,
+        slots: slotsList,
+      },
+    } as ApiResponse);
   } catch (err: any) {
     res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: err.message } });
   }

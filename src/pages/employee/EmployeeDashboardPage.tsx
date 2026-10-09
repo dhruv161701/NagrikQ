@@ -39,9 +39,9 @@ export const EmployeeDashboardPage: React.FC = () => {
     refreshServices,
   } = useData();
 
-  // Fix 9 & Fix 15: Authoritative counter assigned to employee
+  // Fix 9 & Fix 15: Authoritative counter assigned to authenticated employee
   const [activeCounter, setActiveCounter] = useState<string>(() => {
-    return (currentUser as any)?.counterNumber ? `C-${(currentUser as any).counterNumber}` : 'C-01';
+    return (currentUser as any)?.counterNumber ? `C-${(currentUser as any).counterNumber}` : 'Loading...';
   });
 
   const [isQueuePaused, setIsQueuePaused] = useState(false);
@@ -59,16 +59,19 @@ export const EmployeeDashboardPage: React.FC = () => {
   const [physicalDocChecks, setPhysicalDocChecks] = useState<Record<string, 'OK' | 'NOT OK'>>({});
   const [verificationError, setVerificationError] = useState<string>('');
 
-  // Requirement 24: Stop Booking Confirmation Modal State
+  // Stop Booking Confirmation Modal State
   const [stopBookingModalOpen, setStopBookingModalOpen] = useState(false);
   const [serviceToStop, setServiceToStop] = useState<any>(null);
   const [isStoppingBooking, setIsStoppingBooking] = useState(false);
 
-  // Fetch Authoritative Counter and Service Assignments from DB (Fix 1, Fix 8, Fix 9, Fix 15)
+  // Fetch Authoritative Counter and Service Assignments from DB
   useEffect(() => {
     const fetchOfficerProfile = async () => {
       if (!currentUser?.id) return;
       try {
+        let resolvedCounter: string | null = null;
+        let resolvedServices: string[] | null = null;
+
         const { data: officer } = await supabase
           .from('officers')
           .select('counter_number, assigned_service_ids')
@@ -76,23 +79,45 @@ export const EmployeeDashboardPage: React.FC = () => {
           .maybeSingle();
 
         if (officer?.counter_number) {
-          setActiveCounter(officer.counter_number);
-        } else {
+          resolvedCounter = officer.counter_number;
+        }
+        if (Array.isArray(officer?.assigned_service_ids) && officer.assigned_service_ids.length > 0) {
+          resolvedServices = officer.assigned_service_ids;
+        }
+
+        if (!resolvedCounter) {
           const { data: staff } = await supabase
             .from('staff_profiles')
             .select('counter_number, assigned_service_ids')
             .eq('id', currentUser.id)
             .maybeSingle();
           if (staff?.counter_number) {
-            setActiveCounter(staff.counter_number);
+            resolvedCounter = staff.counter_number;
           }
-          if (Array.isArray(staff?.assigned_service_ids) && staff.assigned_service_ids.length > 0) {
-            setSelectedServiceIds(staff.assigned_service_ids);
+          if (!resolvedServices && Array.isArray(staff?.assigned_service_ids) && staff.assigned_service_ids.length > 0) {
+            resolvedServices = staff.assigned_service_ids;
           }
         }
 
-        if (Array.isArray(officer?.assigned_service_ids) && officer.assigned_service_ids.length > 0) {
-          setSelectedServiceIds(officer.assigned_service_ids);
+        if (!resolvedCounter) {
+          const { data: counterRow } = await supabase
+            .from('counters')
+            .select('counter_number')
+            .eq('assigned_officer_id', currentUser.id)
+            .maybeSingle();
+          if (counterRow?.counter_number) {
+            resolvedCounter = counterRow.counter_number;
+          }
+        }
+
+        if (resolvedCounter) {
+          setActiveCounter(resolvedCounter);
+        } else {
+          setActiveCounter('Unassigned');
+        }
+
+        if (resolvedServices) {
+          setSelectedServiceIds(resolvedServices);
         }
       } catch (err) {
         console.warn('Officer profile fetch note:', err);
@@ -341,7 +366,17 @@ export const EmployeeDashboardPage: React.FC = () => {
     return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
   }, []);
 
+  // Item 5: Stop Booking Schedule Check - office hours conclude at 17:00 (5:00 PM)
+  const isBookingWindowClosedForToday = useMemo(() => {
+    const now = new Date();
+    return now.getHours() >= 17;
+  }, []);
+
   const handleOpenStopBooking = (service: any) => {
+    if (isBookingWindowClosedForToday) {
+      alert("Today's booking slots have already concluded for the day (past 5:00 PM). It is unnecessary to stop booking for a period that is already over.");
+      return;
+    }
     setServiceToStop(service);
     setStopBookingModalOpen(true);
   };
@@ -433,8 +468,17 @@ export const EmployeeDashboardPage: React.FC = () => {
       >
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <span style={{ backgroundColor: 'var(--color-accent-600)', color: 'white', fontWeight: 900, padding: '4px 12px', borderRadius: '8px', fontSize: '1.1rem' }}>
-              COUNTER {activeCounter}
+            <span
+              style={{
+                backgroundColor: activeCounter === 'Unassigned' ? 'var(--color-danger-600)' : 'var(--color-accent-600)',
+                color: 'white',
+                fontWeight: 900,
+                padding: '4px 12px',
+                borderRadius: '8px',
+                fontSize: activeCounter === 'Unassigned' ? '0.95rem' : '1.1rem',
+              }}
+            >
+              {activeCounter === 'Unassigned' ? '⚠️ COUNTER UNASSIGNED' : `COUNTER ${activeCounter}`}
             </span>
             <span style={{ fontSize: '0.85rem', color: '#86EFAC', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px' }}>
               <span style={{ height: '8px', width: '8px', borderRadius: '50%', backgroundColor: 'var(--color-secondary)' }} />
@@ -758,7 +802,17 @@ export const EmployeeDashboardPage: React.FC = () => {
                 </div>
 
                 <div style={{ marginTop: 'auto', paddingTop: '8px', borderTop: '1px solid rgba(0,0,0,0.06)' }}>
-                  {isStoppedToday ? (
+                  {isBookingWindowClosedForToday ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={true}
+                      style={{ width: '100%', fontWeight: 600, opacity: 0.65 }}
+                      title="Today's booking window has finished (past 5:00 PM)"
+                    >
+                      Booking Window Closed for Today
+                    </Button>
+                  ) : isStoppedToday ? (
                     <Button
                       variant="outline"
                       size="sm"

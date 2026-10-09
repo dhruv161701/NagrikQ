@@ -3,7 +3,6 @@ import { supabaseAdmin } from '../config/supabase';
 import { sendTelegramMessage } from './telegramBotService';
 
 dotenv.config();
-process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 
 const N8N_WEBHOOK_URL = process.env.N8N_WEBHOOK_URL || 'http://localhost:5678/webhook/idp-created';
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || 'nagrikq_idp_secret_key_2026';

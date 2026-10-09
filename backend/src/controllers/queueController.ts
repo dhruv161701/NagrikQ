@@ -3,6 +3,7 @@ import { AuthenticatedRequest, ApiResponse } from '../types';
 import { supabaseAdmin } from '../config/supabase';
 import { bookingMutex } from '../utils/mutex';
 import { getOfficeLocalTime, isSlotInPastOrTooSoon } from '../utils/timezone';
+import { notificationService } from '../services/notificationService';
 
 export const generateToken = async (
   req: AuthenticatedRequest,
@@ -69,6 +70,20 @@ export const generateToken = async (
         res.status(400).json({
           success: false,
           error: { code: 'PAST_DATE', message: 'Tokens cannot be booked for past dates.' },
+        });
+        return;
+      }
+
+      // Requirement 13: National & State Holiday Closure Check
+      const { isOfficeClosedOnDate } = await import('./holidayController');
+      const holidayClosure = await isOfficeClosedOnDate(bookingDate, selectedState, resolvedOfficeId);
+      if (holidayClosure.isClosed && holidayClosure.holiday) {
+        res.status(400).json({
+          success: false,
+          error: {
+            code: 'OFFICE_CLOSED_HOLIDAY',
+            message: `Government office is officially closed on ${bookingDate} for ${holidayClosure.holiday.name}. Token bookings cannot be issued on official holidays.`,
+          },
         });
         return;
       }
@@ -339,13 +354,23 @@ export const generateToken = async (
       counter_path: token.counter_path || req.body.counterPath || null,
     };
 
-    // Insert Notification
-    await supabaseAdmin.from('notifications').insert({
-      user_id: userId,
-      title: 'Virtual Token Generated',
-      message: `Your Virtual Queue Token ${tokenNumber} has been generated for ${serviceName || 'Service'}.`,
-      type: 'queue',
-      link_url: '/user/queue',
+    // Requirement 1: Service Booking Notification
+    const resolvedSvcName = token.services?.name || serviceName || 'Government Service';
+    const resolvedTokenNum = token.token_number || tokenNumber;
+    await notificationService.sendQueuePushNotification({
+      userId,
+      tokenId: token.id,
+      tokenNumber: resolvedTokenNum,
+      serviceName: resolvedSvcName,
+      counterNumber: token.counter_number,
+      eventType: 'BOOKING_CONFIRMED',
+      title: 'Booking Confirmed',
+      body: `Your booking for ${resolvedSvcName} is confirmed. Your token number is ${resolvedTokenNum}.`,
+      metadata: {
+        timeSlot: finalTokenData.time_slot || '',
+        slotDate: finalTokenData.slot_date || '',
+        officeName: token.offices?.name || 'Jan Seva Kendra',
+      },
     });
 
     res.status(201).json({ success: true, data: finalTokenData } as ApiResponse);
@@ -693,6 +718,22 @@ export const callNextToken = async (
       details: `Officer called next citizen ${updatedToken.token_number} to counter ${targetCounter}.`,
     });
 
+    // Requirement 6: Token Called Notification
+    if (updatedToken.user_id) {
+      const tokenNum = updatedToken.token_number || 'Token';
+      const svcName = updatedToken.services?.name || 'Service';
+      await notificationService.sendQueuePushNotification({
+        userId: updatedToken.user_id,
+        tokenId: updatedToken.id,
+        tokenNumber: tokenNum,
+        serviceName: svcName,
+        counterNumber: targetCounter,
+        eventType: 'TOKEN_CALLED',
+        title: 'Token Called',
+        body: `Your token ${tokenNum} has been called. Please proceed to ${targetCounter}.`,
+      });
+    }
+
     res.json({ success: true, data: updatedToken } as ApiResponse);
   } catch (err: any) {
     res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: err.message } });
@@ -749,6 +790,88 @@ export const updateTokenStatus = async (
       token.next_counter = token.next_counter || nextCounter;
     }
 
+    // Trigger relevant Push Notifications based on state change
+    if (token && token.user_id) {
+      const tokenNum = token.token_number || 'Token';
+      const svcName = token.services?.name || 'Government Service';
+      const counterNum = token.counter_number || 'Counter';
+
+      if (nextCounter) {
+        // Section 2: Table Redirection
+        await notificationService.sendQueuePushNotification({
+          userId: token.user_id,
+          tokenId: token.id,
+          tokenNumber: tokenNum,
+          serviceName: svcName,
+          counterNumber: counterNum,
+          nextCounter,
+          eventType: 'TABLE_REDIRECTED',
+          title: 'Please Proceed to Another Counter',
+          body: `Your token ${tokenNum} has been redirected to ${nextCounter}. Please proceed to the assigned counter.`,
+        });
+      } else if (status === 'IN_SERVICE') {
+        // Section 3: Service Processing Started
+        await notificationService.sendQueuePushNotification({
+          userId: token.user_id,
+          tokenId: token.id,
+          tokenNumber: tokenNum,
+          serviceName: svcName,
+          counterNumber: counterNum,
+          eventType: 'SERVICE_PROCESSING',
+          title: 'Your Service Is Being Processed',
+          body: `Processing for your ${svcName} service has started at ${counterNum}.`,
+        });
+      } else if (status === 'COMPLETED') {
+        // Section 4: Service Completed
+        await notificationService.sendQueuePushNotification({
+          userId: token.user_id,
+          tokenId: token.id,
+          tokenNumber: tokenNum,
+          serviceName: svcName,
+          counterNumber: counterNum,
+          eventType: 'SERVICE_COMPLETED',
+          title: 'Service Completed',
+          body: `Your service for ${svcName} has been completed successfully.`,
+        });
+      } else if (status === 'NO_SHOW' || status === 'SKIPPED') {
+        // Section 5: Token Skipped
+        await notificationService.sendQueuePushNotification({
+          userId: token.user_id,
+          tokenId: token.id,
+          tokenNumber: tokenNum,
+          serviceName: svcName,
+          counterNumber: counterNum,
+          eventType: 'TOKEN_SKIPPED',
+          title: 'Your Token Has Been Skipped',
+          body: `Your token ${tokenNum} has been skipped. Please check with the assigned counter or staff for the next steps.`,
+        });
+      } else if (status === 'CANCELLED') {
+        // Section 6: Token Cancelled
+        await notificationService.sendQueuePushNotification({
+          userId: token.user_id,
+          tokenId: token.id,
+          tokenNumber: tokenNum,
+          serviceName: svcName,
+          counterNumber: counterNum,
+          eventType: 'TOKEN_CANCELLED',
+          title: 'Token Cancelled',
+          body: `Your token ${tokenNum} has been cancelled.`,
+        });
+      } else if (status === 'CALLED') {
+        // Section 6: Token Called
+        await notificationService.sendQueuePushNotification({
+          userId: token.user_id,
+          tokenId: token.id,
+          tokenNumber: tokenNum,
+          serviceName: svcName,
+          counterNumber: counterNum,
+          eventType: 'TOKEN_CALLED',
+          title: 'Token Called',
+          body: `Your token ${tokenNum} has been called. Please proceed to ${counterNum}.`,
+        });
+      }
+    }
+
     res.json({ success: true, data: token } as ApiResponse);
   } catch (err: any) {
     res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: err.message } });
@@ -801,19 +924,21 @@ export const routeNextTable = async (
 
     token.next_counter = token.next_counter || nextCounter;
 
-    // Send realtime notification to citizen
+    // Section 2: Table Redirection Push Notification
     if (token.user_id) {
-      try {
-        await supabaseAdmin.from('notifications').insert({
-          user_id: token.user_id,
-          title: `Please go to ${nextCounter}`,
-          message: `Your service at Counter ${token.counter_number || 'current table'} is complete. Please physically proceed to Table ${nextCounter}.`,
-          type: 'queue',
-          link_url: '/user/queue',
-        });
-      } catch (notifErr) {
-        console.warn('Failed to insert route notification:', notifErr);
-      }
+      const tokenNum = token.token_number || 'Token';
+      const svcName = token.services?.name || 'Government Service';
+      await notificationService.sendQueuePushNotification({
+        userId: token.user_id,
+        tokenId: token.id,
+        tokenNumber: tokenNum,
+        serviceName: svcName,
+        counterNumber: token.counter_number,
+        nextCounter,
+        eventType: 'TABLE_REDIRECTED',
+        title: 'Please Proceed to Another Counter',
+        body: `Your token ${tokenNum} has been redirected to ${nextCounter}. Please proceed to the assigned counter.`,
+      });
     }
 
     // Audit log
@@ -912,6 +1037,22 @@ export const cancelToken = async (
       }
     }
 
+    // Section 6: Token Cancelled Notification
+    if (token && token.user_id) {
+      const tokenNum = token.token_number || 'Token';
+      const svcName = token.services?.name || 'Government Service';
+      await notificationService.sendQueuePushNotification({
+        userId: token.user_id,
+        tokenId: token.id,
+        tokenNumber: tokenNum,
+        serviceName: svcName,
+        counterNumber: token.counter_number,
+        eventType: 'TOKEN_CANCELLED',
+        title: 'Token Cancelled',
+        body: `Your token ${tokenNum} has been cancelled.`,
+      });
+    }
+
     res.json({ success: true, data: token } as ApiResponse);
   } catch (err: any) {
     res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: err.message } });
@@ -965,6 +1106,34 @@ export const advanceCounter = async (
     if (updateErr) {
       res.status(500).json({ success: false, error: { code: 'UPDATE_FAILED', message: updateErr.message } });
       return;
+    }
+
+    if (updated && updated.user_id) {
+      const tokenNum = updated.token_number || 'Token';
+      const svcName = updated.services?.name || 'Government Service';
+      if (updated.status === 'COMPLETED') {
+        await notificationService.sendQueuePushNotification({
+          userId: updated.user_id,
+          tokenId: updated.id,
+          tokenNumber: tokenNum,
+          serviceName: svcName,
+          counterNumber: updated.counter_number,
+          eventType: 'SERVICE_COMPLETED',
+          title: 'Service Completed',
+          body: `Your service for ${svcName} has been completed successfully.`,
+        });
+      } else {
+        await notificationService.sendQueuePushNotification({
+          userId: updated.user_id,
+          tokenId: updated.id,
+          tokenNumber: tokenNum,
+          serviceName: svcName,
+          counterNumber: updated.counter_number,
+          eventType: 'COUNTER_ADVANCED',
+          title: 'Please Proceed to Next Counter',
+          body: `Your token ${tokenNum} has moved to ${updated.counter_number}. Please proceed to the assigned counter.`,
+        });
+      }
     }
 
     res.json({ success: true, data: updated } as ApiResponse);
@@ -1023,6 +1192,21 @@ export const rebookToken = async (
       slot_date: updated.slot_date || slotDate || new Date().toISOString().split('T')[0],
       is_late: false,
     };
+
+    if (finalUpdated && finalUpdated.user_id) {
+      const tokenNum = finalUpdated.token_number || 'Token';
+      const svcName = finalUpdated.services?.name || 'Government Service';
+      await notificationService.sendQueuePushNotification({
+        userId: finalUpdated.user_id,
+        tokenId: finalUpdated.id,
+        tokenNumber: tokenNum,
+        serviceName: svcName,
+        counterNumber: finalUpdated.counter_number,
+        eventType: 'TOKEN_REBOOKED',
+        title: 'Token Rebooked',
+        body: `Your token ${tokenNum} for ${svcName} has been rescheduled for ${finalUpdated.slot_date} (${finalUpdated.time_slot}).`,
+      });
+    }
 
     res.json({ success: true, data: finalUpdated } as ApiResponse);
   } catch (err: any) {

@@ -9,15 +9,18 @@ import { Badge } from '../../components/ui/Badge';
 import { Modal } from '../../components/ui/Modal';
 import { AIAssistantWidget } from '../../components/assistant/AIAssistantWidget';
 import {
-  Building,
   CheckSquare,
   Bot,
   ShieldCheck,
-  MapPin,
   Ticket,
   AlertCircle,
   AlertTriangle,
+  UploadCloud,
+  CheckCircle2,
+  XCircle,
+  ExternalLink,
 } from 'lucide-react';
+import { supabase } from '../../config/supabase';
 import {
   INDIAN_STATES,
   STATE_CITIES,
@@ -30,7 +33,7 @@ import {
 
 export const ServiceDetailPage: React.FC = () => {
   const { serviceId } = useParams<{ serviceId: string }>();
-  const { getServiceById, offices, queueTokens, issueQueueToken, submitApplication } = useData();
+  const { getServiceById, queueTokens, issueQueueToken, submitApplication } = useData();
   const { uiMode } = useUI();
   const { currentUser } = useAuth();
   const navigate = useNavigate();
@@ -50,15 +53,131 @@ export const ServiceDetailPage: React.FC = () => {
   // Booking Date Restrictions: Strictly Today & Tomorrow only
   const bookingDateOptions = useMemo(() => getAvailableBookingDates(), []);
 
+  // Item 12: User Document Vault records & Category Matching
+  const [userVaultDocs, setUserVaultDocs] = useState<any[]>([]);
+
+  // Item 13 & 15: Dynamic slots and holiday closure info from backend
+  const [serverSlotData, setServerSlotData] = useState<{
+    isClosedHoliday?: boolean;
+    holidayName?: string | null;
+    isBookingStopped?: boolean;
+    slots?: Array<{ timeSlot: string; available: boolean; bookedCount: number; capacity: number; reason?: string }>;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!currentUser?.id) {
+      setUserVaultDocs([]);
+      return;
+    }
+    const fetchVaultDocs = async () => {
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const token = sessionData?.session?.access_token;
+        if (token) {
+          const res = await fetch('/api/documents', {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (res.ok) {
+            const json = await res.json();
+            if (json.success && Array.isArray(json.data)) {
+              setUserVaultDocs(json.data);
+              return;
+            }
+          }
+        }
+        const { data } = await supabase
+          .from('documents')
+          .select('*')
+          .eq('user_id', currentUser.id);
+        if (data) {
+          setUserVaultDocs(data);
+        }
+      } catch (err) {
+        console.warn('Error fetching vault documents:', err);
+      }
+    };
+    fetchVaultDocs();
+  }, [currentUser?.id]);
+
+  useEffect(() => {
+    if (!serviceId || !selectedSlotDate) return;
+    const fetchSlots = async () => {
+      try {
+        const res = await fetch(`/api/services/${serviceId}/available-slots?date=${selectedSlotDate}`);
+        if (res.ok) {
+          const json = await res.json();
+          if (json.success && json.data) {
+            setServerSlotData(json.data);
+          }
+        }
+      } catch (err) {
+        console.warn('Slot availability fetch notice:', err);
+      }
+    };
+    fetchSlots();
+  }, [serviceId, selectedSlotDate]);
+
+  // Document categorization and matching normalizer
+  const normalizeDocCategory = (name: string): string => {
+    const clean = name.toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (clean.includes('aadhaar') || clean.includes('aadhar')) return 'aadhaar';
+    if (clean.includes('income')) return 'income';
+    if (clean.includes('caste')) return 'caste';
+    if (clean.includes('domicile') || clean.includes('residence')) return 'domicile';
+    if (clean.includes('birth')) return 'birth';
+    if (clean.includes('pan')) return 'pan';
+    if (clean.includes('ration')) return 'ration';
+    if (clean.includes('driving') || clean.includes('license')) return 'license';
+    return clean;
+  };
+
+  const getVaultDocStatus = (reqDocName: string) => {
+    if (!currentUser) return { status: 'LOGIN_REQUIRED', label: 'Login to View Status', color: 'var(--color-neutral-600)', bg: 'var(--color-neutral-100)', border: 'var(--color-neutral-300)' };
+    const targetNorm = normalizeDocCategory(reqDocName);
+
+    const match = userVaultDocs.find((vd) => {
+      const vNorm = normalizeDocCategory(vd.requirement_name || vd.document_category || vd.file_name || '');
+      return vNorm === targetNorm || vNorm.includes(targetNorm) || targetNorm.includes(vNorm);
+    });
+
+    if (!match) {
+      return { status: 'MISSING', label: 'Missing from Vault', color: '#B91C1C', bg: '#FEE2E2', border: '#FCA5A5' };
+    }
+
+    const vStatus = (match.verification_status || '').toUpperCase();
+    if (vStatus === 'REJECTED') {
+      return { status: 'REJECTED', label: 'Rejected (Needs Re-upload)', color: '#B91C1C', bg: '#FEE2E2', border: '#EF4444' };
+    }
+    if (vStatus === 'EXPIRED') {
+      return { status: 'EXPIRED', label: 'Expired', color: '#B91C1C', bg: '#FEE2E2', border: '#EF4444' };
+    }
+    if (match.expiry_date && !match.expiry_date.includes('Lifetime')) {
+      const expDate = new Date(match.expiry_date);
+      if (!isNaN(expDate.getTime()) && expDate < new Date()) {
+        return { status: 'EXPIRED', label: 'Expired', color: '#B91C1C', bg: '#FEE2E2', border: '#EF4444' };
+      }
+    }
+    if (vStatus === 'NEEDS_REVIEW' || vStatus === 'PENDING' || vStatus === 'SUBMITTED') {
+      return { status: 'NEEDS_REVIEW', label: 'Needs Review', color: '#B45309', bg: '#FEF3C7', border: '#F59E0B' };
+    }
+    if (vStatus === 'VERIFIED') {
+      return { status: 'VERIFIED', label: 'Verified & Valid in Vault', color: '#15803D', bg: '#DCFCE7', border: '#86EFAC' };
+    }
+    return { status: 'MISSING', label: 'Missing from Vault', color: '#B91C1C', bg: '#FEE2E2', border: '#FCA5A5' };
+  };
+
   // Compute available slots: For Today, strictly exclude past time slots. Tomorrow shows all slots.
   const availableSlotsForDate = useMemo(() => {
+    if (serverSlotData?.slots && serverSlotData.slots.length > 0) {
+      return serverSlotData.slots.map((s) => s.timeSlot);
+    }
     const todayStr = new Date().toISOString().split('T')[0];
     const isToday = selectedSlotDate === todayStr;
     if (isToday) {
       return FIXED_30_MIN_SLOTS.filter((s) => !isSlotInPastForToday(s));
     }
     return FIXED_30_MIN_SLOTS;
-  }, [selectedSlotDate]);
+  }, [selectedSlotDate, serverSlotData]);
 
   // Keep selectedTimeSlot valid when date switches
   useEffect(() => {
@@ -241,81 +360,133 @@ export const ServiceDetailPage: React.FC = () => {
 
       {/* Main Details Grid */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '32px' }}>
-        {/* Left Column: Requirements & Eligibility */}
+        {/* Left Column: Requirements & Verification Status */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
           {/* Dynamic Required Documents Card */}
           <Card>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
-              <CheckSquare size={24} style={{ color: 'var(--color-primary-700)' }} />
-              <h3 style={{ fontSize: '1.3rem', color: 'var(--color-primary-900)', margin: 0 }}>
-                Required Documents ({service.requiredDocuments.length})
-              </h3>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px', flexWrap: 'wrap', gap: '8px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <CheckSquare size={24} style={{ color: 'var(--color-primary-700)' }} />
+                <h3 style={{ fontSize: '1.3rem', color: 'var(--color-primary-900)', margin: 0 }}>
+                  Required Documents ({service.requiredDocuments.length})
+                </h3>
+              </div>
+              {currentUser && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => navigate('/user/documents')}
+                  icon={<UploadCloud size={14} />}
+                  style={{ fontSize: '12px', padding: '6px 12px' }}
+                >
+                  Manage Vault
+                </Button>
+              )}
             </div>
             <p style={{ fontSize: '0.9rem', color: 'var(--color-neutral-600)', marginBottom: '16px' }}>
               Ensure you have clear scanned PDF/JPG copies of these documents before visiting the counter:
             </p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              {service.requiredDocuments.map((doc, idx) => (
-                <div
-                  key={doc.id}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'flex-start',
-                    gap: '12px',
-                    padding: '14px',
-                    borderRadius: '10px',
-                    backgroundColor: 'var(--color-neutral-50)',
-                    border: '1px solid var(--color-neutral-200)',
-                  }}
-                >
-                  <span
+              {service.requiredDocuments.map((doc, idx) => {
+                const docStatus = getVaultDocStatus(doc.name);
+
+                return (
+                  <div
+                    key={doc.id}
                     style={{
-                      fontWeight: 700,
-                      color: 'var(--color-primary-700)',
-                      backgroundColor: 'var(--color-primary-100)',
-                      width: '26px',
-                      height: '26px',
-                      borderRadius: '50%',
                       display: 'flex',
                       alignItems: 'center',
-                      justifyContent: 'center',
-                      fontSize: '0.85rem',
-                      flexShrink: 0,
+                      justifyContent: 'space-between',
+                      gap: '12px',
+                      padding: '14px',
+                      borderRadius: '10px',
+                      backgroundColor: docStatus.status === 'VERIFIED' ? '#F0FDF4' : docStatus.status === 'MISSING' || docStatus.status === 'REJECTED' || docStatus.status === 'EXPIRED' ? '#FEF2F2' : 'var(--color-neutral-50)',
+                      border: `1.5px solid ${docStatus.border}`,
                     }}
                   >
-                    {idx + 1}
-                  </span>
-                  <div>
-                    <div style={{ fontWeight: 700, fontSize: isSimple ? '1.1rem' : '0.98rem', color: 'var(--color-neutral-900)' }}>
-                      {doc.name} {doc.isRequired ? <span style={{ color: 'var(--color-error-500)' }}>*</span> : null}
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
+                      <span
+                        style={{
+                          fontWeight: 700,
+                          color: docStatus.status === 'VERIFIED' ? '#15803D' : docStatus.status === 'MISSING' || docStatus.status === 'REJECTED' || docStatus.status === 'EXPIRED' ? '#B91C1C' : 'var(--color-primary-700)',
+                          backgroundColor: docStatus.status === 'VERIFIED' ? '#DCFCE7' : docStatus.status === 'MISSING' || docStatus.status === 'REJECTED' || docStatus.status === 'EXPIRED' ? '#FEE2E2' : 'var(--color-primary-100)',
+                          width: '26px',
+                          height: '26px',
+                          borderRadius: '50%',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontSize: '0.85rem',
+                          flexShrink: 0,
+                        }}
+                      >
+                        {idx + 1}
+                      </span>
+                      <div>
+                        <div style={{ fontWeight: 700, fontSize: isSimple ? '1.1rem' : '0.98rem', color: docStatus.status === 'VERIFIED' ? '#166534' : docStatus.status === 'MISSING' || docStatus.status === 'REJECTED' || docStatus.status === 'EXPIRED' ? '#991B1B' : 'var(--color-neutral-900)' }}>
+                          {doc.name} {doc.isRequired ? <span style={{ color: 'var(--color-error-500)' }}>*</span> : null}
+                        </div>
+                        {doc.description && (
+                          <p style={{ fontSize: '0.85rem', color: 'var(--color-neutral-600)', marginTop: '2px' }}>
+                            {doc.description}
+                          </p>
+                        )}
+                      </div>
                     </div>
-                    {doc.description && (
-                      <p style={{ fontSize: '0.85rem', color: 'var(--color-neutral-600)', marginTop: '2px' }}>
-                        {doc.description}
-                      </p>
-                    )}
+
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px', flexShrink: 0 }}>
+                      <span
+                        style={{
+                          fontSize: '11px',
+                          fontWeight: 800,
+                          color: docStatus.color,
+                          backgroundColor: docStatus.bg,
+                          border: `1px solid ${docStatus.border}`,
+                          padding: '4px 10px',
+                          borderRadius: '6px',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                        }}
+                      >
+                        {docStatus.status === 'VERIFIED' ? (
+                          <CheckCircle2 size={12} />
+                        ) : docStatus.status === 'NEEDS_REVIEW' ? (
+                          <AlertTriangle size={12} />
+                        ) : (
+                          <XCircle size={12} />
+                        )}
+                        {docStatus.label}
+                      </span>
+                      {docStatus.status === 'MISSING' && currentUser && (
+                        <button
+                          type="button"
+                          onClick={() => navigate('/user/documents')}
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            color: 'var(--color-primary-700)',
+                            fontSize: '11px',
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '2px',
+                            padding: 0,
+                          }}
+                        >
+                          Upload to Vault <ExternalLink size={10} />
+                        </button>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </Card>
-
-          {/* Eligibility Criteria */}
-          {service.eligibilityCriteria && (
-            <Card>
-              <h3 style={{ fontSize: '1.2rem', color: 'var(--color-primary-900)', marginBottom: '12px' }}>
-                Who Can Apply (Eligibility)
-              </h3>
-              <ul style={{ paddingLeft: '20px', margin: 0, display: 'flex', flexDirection: 'column', gap: '8px', color: 'var(--color-neutral-700)', fontSize: isSimple ? '1.05rem' : '0.95rem' }}>
-                {service.eligibilityCriteria.map((item, idx) => (
-                  <li key={idx}>{item}</li>
-                ))}
-              </ul>
-            </Card>
-          )}
         </div>
 
-        {/* Right Column: Processing Details & Available Offices */}
+        {/* Right Column: Processing Details */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
           {/* Key Facts Card */}
           <Card>
@@ -337,42 +508,6 @@ export const ServiceDetailPage: React.FC = () => {
                   {service.feeAmount === 0 ? 'FREE (₹0)' : `₹${service.feeAmount}`}
                 </span>
               </div>
-            </div>
-          </Card>
-
-          {/* Available Offices */}
-          <Card>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
-              <Building size={22} style={{ color: 'var(--color-primary-700)' }} />
-              <h3 style={{ fontSize: '1.2rem', color: 'var(--color-primary-900)', margin: 0 }}>
-                Available Offices & Counters
-              </h3>
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              {offices.map((off) => (
-                <div
-                  key={off.id}
-                  style={{
-                    padding: '12px',
-                    borderRadius: '10px',
-                    border: '1px solid var(--color-neutral-200)',
-                    backgroundColor: 'var(--color-neutral-50)',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '4px',
-                  }}
-                >
-                  <div style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--color-neutral-900)' }}>
-                    {off.name}
-                  </div>
-                  <span style={{ fontSize: '0.82rem', color: 'var(--color-neutral-600)', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                    <MapPin size={14} /> {off.address}
-                  </span>
-                  <span style={{ fontSize: '0.8rem', color: 'var(--color-primary-700)', fontWeight: 600, marginTop: '2px' }}>
-                    {off.totalCounters} Active Verification Counters
-                  </span>
-                </div>
-              ))}
             </div>
           </Card>
         </div>
@@ -405,6 +540,50 @@ export const ServiceDetailPage: React.FC = () => {
             >
               <AlertCircle size={18} color="var(--color-danger-600)" style={{ flexShrink: 0 }} />
               <span>{applyError}</span>
+            </div>
+          )}
+
+          {serverSlotData?.isClosedHoliday && (
+            <div
+              style={{
+                padding: '12px 14px',
+                borderRadius: '8px',
+                backgroundColor: '#FEF2F2',
+                border: '1.5px solid #EF4444',
+                color: '#991B1B',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '10px',
+                fontSize: '0.85rem',
+                fontWeight: 700,
+              }}
+            >
+              <AlertTriangle size={20} color="#DC2626" style={{ flexShrink: 0 }} />
+              <div>
+                <strong>Office Closed for Official Holiday:</strong> {serverSlotData.holidayName || 'Gazetted Holiday'}. Government counters are officially closed on this date; online appointment booking is disabled.
+              </div>
+            </div>
+          )}
+
+          {serverSlotData?.isBookingStopped && (
+            <div
+              style={{
+                padding: '12px 14px',
+                borderRadius: '8px',
+                backgroundColor: '#FEF3C7',
+                border: '1.5px solid #F59E0B',
+                color: '#92400E',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '10px',
+                fontSize: '0.85rem',
+                fontWeight: 700,
+              }}
+            >
+              <AlertCircle size={20} color="#D97706" style={{ flexShrink: 0 }} />
+              <div>
+                <strong>Booking Stopped for Today:</strong> The office has stopped issuing new online tokens for today. Please choose tomorrow or a later date.
+              </div>
             </div>
           )}
 
@@ -661,11 +840,15 @@ export const ServiceDetailPage: React.FC = () => {
             <Button
               variant="saffron"
               onClick={handleCreateApplicationAndToken}
-              disabled={applySubmitting || !!duplicateBookingForSelectedDate}
+              disabled={applySubmitting || !!duplicateBookingForSelectedDate || !!serverSlotData?.isClosedHoliday || !!serverSlotData?.isBookingStopped}
               icon={<Ticket size={18} />}
             >
               {applySubmitting
                 ? 'Booking Slot...'
+                : serverSlotData?.isClosedHoliday
+                ? 'Office Closed for Holiday'
+                : serverSlotData?.isBookingStopped
+                ? 'Booking Stopped for Today'
                 : duplicateBookingForSelectedDate
                 ? 'Already Booked For This Date'
                 : `Confirm & Book Slot (${selectedTimeSlot})`}

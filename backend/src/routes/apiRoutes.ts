@@ -9,7 +9,16 @@ import {
   updateServiceSlots,
   stopBookingToday,
   resumeBookingToday,
+  getAvailableSlotsForService,
 } from '../controllers/serviceController';
+import {
+  getHolidays,
+  checkClosure,
+  createHoliday,
+  updateHoliday,
+  deleteHoliday,
+  sendAdvanceHolidayNotifications,
+} from '../controllers/holidayController';
 import {
   createApplication,
   getApplications,
@@ -75,14 +84,28 @@ import {
   getTelegramMappings,
   getTelegramStatus,
 } from '../controllers/telegramController';
+import {
+  registerFcmToken,
+  sendPushNotification,
+  getUserNotifications,
+} from '../controllers/notificationController';
 
 const router = Router();
 
 // PUBLIC ROUTES
 router.get('/services', getServices);
 router.get('/services/location-aware', getLocationAwareServices);
+router.get('/services/:id/available-slots', getAvailableSlotsForService);
 router.get('/services/:id', getServiceById);
 router.get('/offices', getOffices);
+
+// HOLIDAY & OFFICE CLOSURE ROUTES (Requirement 13)
+router.get('/holidays', getHolidays);
+router.get('/holidays/check-closure', checkClosure);
+router.post('/holidays/advance-notifications', sendAdvanceHolidayNotifications);
+router.post('/holidays', authenticateToken, requireRole('admin', 'superadmin'), createHoliday);
+router.put('/holidays/:id', authenticateToken, requireRole('admin', 'superadmin'), updateHoliday);
+router.delete('/holidays/:id', authenticateToken, requireRole('admin', 'superadmin'), deleteHoliday);
 
 // TELEGRAM BOT ROUTES
 router.post('/telegram/webhook', handleTelegramWebhook);
@@ -116,6 +139,11 @@ router.post('/queue/tokens/:id/rebook', authenticateToken, rebookToken);
 
 router.post('/complaints', authenticateToken, submitComplaint);
 router.get('/complaints', authenticateToken, getComplaints);
+
+// REALTIME PUSH NOTIFICATIONS & FCM TOKEN ROUTES
+router.post('/notifications/fcm-token', registerFcmToken);
+router.post('/notifications/send-push', sendPushNotification);
+router.get('/notifications', authenticateToken, getUserNotifications);
 
 // RAG AI ASSISTANT ROUTES (public - read-only query)
 router.post('/rag/ask', askRagQuestion);

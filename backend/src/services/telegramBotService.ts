@@ -3,10 +3,9 @@ import { supabaseAdmin } from '../config/supabase';
 import { normalizePhoneNumber, isValidPhoneNumber } from '../utils/phoneUtils';
 
 dotenv.config();
-process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 
-const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '8874803375:AAHHnLDMGA2tXkfIeMICfVoH9kSTf1EO1bI';
-const TELEGRAM_API_BASE = `https://api.telegram.org/bot${BOT_TOKEN}`;
+const getBotToken = (): string => process.env.TELEGRAM_BOT_TOKEN || '';
+const getTelegramApiBase = (): string => `https://api.telegram.org/bot${getBotToken()}`;
 
 export interface TelegramUserUpdate {
   update_id: number;
@@ -38,8 +37,13 @@ export async function sendTelegramMessage(
   text: string,
   parseMode: 'Markdown' | 'HTML' = 'Markdown'
 ): Promise<{ success: boolean; data?: any; error?: string }> {
+  const token = getBotToken();
+  if (!token) {
+    return { success: false, error: 'Telegram bot token is not configured in backend environment.' };
+  }
+
   try {
-    const res = await fetch(`${TELEGRAM_API_BASE}/sendMessage`, {
+    const res = await fetch(`${getTelegramApiBase()}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -55,18 +59,22 @@ export async function sendTelegramMessage(
     try {
       data = JSON.parse(rawText);
     } catch {
-      console.warn('[TELEGRAM_SEND_WARN] Proxy returned non-JSON body:', rawText.slice(0, 150));
+      console.warn('[TELEGRAM_SEND_WARN] Telegram returned non-JSON body:', rawText.slice(0, 150));
       return { success: false, error: 'Telegram API returned non-JSON response.' };
     }
 
     if (!data.ok) {
-      console.error('[TELEGRAM_SEND_ERROR]', data);
+      if (data.error_code === 401 || data.error_code === 404) {
+        console.warn('[TELEGRAM_BOT_NOTICE] Telegram bot token is invalid or unauthorized. Set a valid TELEGRAM_BOT_TOKEN in backend environment.');
+      } else {
+        console.warn('[TELEGRAM_SEND_NOTE]', data.description || 'Failed to send Telegram message.');
+      }
       return { success: false, error: data.description || 'Failed to send Telegram message.' };
     }
 
     return { success: true, data: data.result };
   } catch (err: any) {
-    console.error('[TELEGRAM_SEND_EXCEPTION]', err);
+    console.warn('[TELEGRAM_SEND_EXCEPTION]', err.message || err);
     return { success: false, error: err.message || 'Telegram API connection error.' };
   }
 }
@@ -499,7 +507,12 @@ export function startTelegramPolling(): void {
   const pollLoop = async () => {
     while (isPollingActive) {
       try {
-        const res = await fetch(`${TELEGRAM_API_BASE}/getUpdates?offset=${lastOffset}&timeout=10`, {
+        const apiBase = getTelegramApiBase();
+        if (!apiBase) {
+          await new Promise((resolve) => setTimeout(resolve, 30000));
+          continue;
+        }
+        const res = await fetch(`${apiBase}/getUpdates?offset=${lastOffset}&timeout=10`, {
           signal: AbortSignal.timeout(15000),
         });
         if (!res.ok) {

@@ -180,9 +180,20 @@ export const verifyAndUploadDocument = async (
       return;
     }
 
+    // Enforce 10 MB maximum file size limit
+    const cleanBase64 = String(fileData).replace(/^data:[^;]+;base64,/, '');
+    const estimatedSizeBytes = Math.ceil((cleanBase64.length * 3) / 4);
+    if (estimatedSizeBytes > 10 * 1024 * 1024) {
+      res.status(400).json({
+        success: false,
+        error: { code: 'FILE_TOO_LARGE', message: 'File size exceeds the maximum allowed limit of 10 MB.' },
+      });
+      return;
+    }
+
     const userId = req.user?.id || reqUserId || 'user_general';
     const category = documentCategory || 'General Document';
-    const name = fileName || 'document';
+    const name = fileName || 'document.pdf';
 
     const { verifyAndProcessDocument } = await import('../services/documentVerificationService');
     const result = await verifyAndProcessDocument(fileData, category, userId, name);

@@ -219,11 +219,13 @@ const mapDBChangeRequestToChangeRequest = (row: any): ChangeRequest => ({
 export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { currentUser, isAuthenticated } = useAuth();
   const [, setTick] = useState(0);
-  const [dbServices, setDbServices] = useState<Service[]>(() => mockRepository.getServices());
-  const [dbApplications, setDbApplications] = useState<Application[]>(() => mockRepository.getApplications());
+  const [dbServices, setDbServices] = useState<Service[]>([]);
+  const [dbApplications, setDbApplications] = useState<Application[]>([]);
   const [dbQueueTokens, setDbQueueTokens] = useState<QueueToken[]>([]);
   const [isQueueTokensLoaded, setIsQueueTokensLoaded] = useState(false);
-  const [dbChangeRequests, setDbChangeRequests] = useState<ChangeRequest[]>(() => mockRepository.getChangeRequests());
+  const [dbChangeRequests, setDbChangeRequests] = useState<ChangeRequest[]>([]);
+  const [dbOffices, setDbOffices] = useState<Office[]>([]);
+  const [dbEmployees, setDbEmployees] = useState<Employee[]>([]);
 
   // 1. Fetch Services (Public - no auth required, include inactive only for superadmin)
   const fetchServicesFromAPI = useCallback(async () => {
@@ -421,6 +423,52 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [currentUser?.role]);
 
+  // 5. Fetch Offices from authoritative Supabase tables
+  const fetchOfficesFromAPI = useCallback(async () => {
+    try {
+      const { data, error } = await supabase.from('offices').select('*');
+      if (!error && Array.isArray(data) && data.length > 0) {
+        setDbOffices(data.map((o: any) => ({
+          id: o.id,
+          name: o.name,
+          departmentId: o.department_id || 'dept-001',
+          district: o.district || '',
+          address: o.address || '',
+          totalCounters: o.total_counters || 5,
+          contactNumber: o.contact_number || '+91 79 23250000',
+        })));
+      }
+    } catch (err) {
+      console.warn('[DataContext] Failed to fetch offices:', err);
+    }
+  }, []);
+
+  // 6. Fetch Employees from authoritative Supabase staff_profiles
+  const fetchEmployeesFromAPI = useCallback(async () => {
+    try {
+      const { data, error } = await supabase.from('staff_profiles').select('*, offices(id, name)');
+      if (!error && Array.isArray(data) && data.length > 0) {
+        setDbEmployees(data.map((e: any) => ({
+          id: e.id,
+          employeeIdCode: e.employee_id || e.id.slice(0, 8),
+          name: e.full_name || 'Counter Staff',
+          email: e.email || '',
+          phone: e.phone || '',
+          officeId: e.office_id || '',
+          officeName: e.offices?.name || 'District Office',
+          counterNumber: e.counter_number || 'C-01',
+          isActive: e.is_active !== false,
+          assignedServiceIds: e.assigned_service_ids || [],
+          breakStartTime: e.break_start_time,
+          breakEndTime: e.break_end_time,
+          isOnBreak: e.is_on_break || false,
+        })));
+      }
+    } catch (err) {
+      console.warn('[DataContext] Failed to fetch employees:', err);
+    }
+  }, []);
+
   // Keep stable reference to latest auth state for callbacks and socket listeners
   const authRef = React.useRef({ isAuthenticated, role: currentUser?.role });
   useEffect(() => {
@@ -430,6 +478,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // 1. Initial loads whenever authentication state or user changes
   useEffect(() => {
     fetchServicesFromAPI();
+    fetchOfficesFromAPI();
+    fetchEmployeesFromAPI();
 
     if (isAuthenticated) {
       fetchApplicationsFromAPI();
@@ -445,6 +495,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     currentUser?.role,
     currentUser?.id,
     fetchServicesFromAPI,
+    fetchOfficesFromAPI,
+    fetchEmployeesFromAPI,
     fetchApplicationsFromAPI,
     fetchQueueTokensFromAPI,
     fetchChangeRequestsFromAPI,
@@ -507,15 +559,15 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, []);
 
-  const allServices = dbServices.length > 0 ? dbServices : mockRepository.getServices();
+  const allServices = dbServices;
   const services = currentUser?.role === 'superadmin' ? allServices : allServices.filter((s) => s.isActive !== false);
-  const offices = mockRepository.getOffices();
-  const employees = mockRepository.getEmployees();
-  const applications = dbApplications.length > 0 ? dbApplications : mockRepository.getApplications();
+  const offices = dbOffices.length > 0 ? dbOffices : [];
+  const employees = dbEmployees.length > 0 ? dbEmployees : [];
+  const applications = dbApplications;
   const queueTokens = isQueueTokensLoaded ? dbQueueTokens : [];
-  const changeRequests = dbChangeRequests.length > 0 ? dbChangeRequests : mockRepository.getChangeRequests();
-  const auditLogs = mockRepository.getAuditLogs();
-  const notifications = mockRepository.getNotifications('');
+  const changeRequests = dbChangeRequests;
+  const auditLogs: AuditLog[] = [];
+  const notifications: NotificationItem[] = [];
 
   // SUBMIT APPLICATION
   const handleSubmitApplication = async (
@@ -582,7 +634,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     );
     setDbQueueTokens((prev) => [...prev.filter((q) => q.id !== localToken.id), localToken]);
     // Also update applications so employee panel sees the booking immediately
-    setDbApplications(mockRepository.getApplications());
+    fetchApplicationsFromAPI();
 
     // 2. Sync to backend API
     try {
@@ -1003,7 +1055,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         refreshApplications: fetchApplicationsFromAPI,
         refreshQueueTokens: fetchQueueTokensFromAPI,
         refreshChangeRequests: fetchChangeRequestsFromAPI,
-        getServiceById: (id) => services.find((s) => s.id === id) || mockRepository.getServiceById(id),
+        getServiceById: (id) => services.find((s) => s.id === id),
         getUserActiveToken: (userId) => {
           if (!isQueueTokensLoaded) return undefined;
           return queueTokens.find(
@@ -1015,8 +1067,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           return queueTokens.filter((q) => q.citizenId === userId);
         },
         getUserApplications: (userId) => {
-          const userApps = applications.filter((a) => a.citizenId === userId);
-          return userApps.length > 0 ? userApps : mockRepository.getUserApplications(userId);
+          return applications.filter((a) => a.citizenId === userId);
         },
         issueQueueToken: handleIssueQueueToken,
         cancelQueueToken: handleCancelQueueToken,

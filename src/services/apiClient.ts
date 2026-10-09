@@ -36,6 +36,22 @@ async function request<T = any>(endpoint: string, options: RequestInit = {}): Pr
     });
 
     if (!response.ok) {
+      // If 401, attempt seamless session refresh to support full 24-hour persistent sessions
+      if (response.status === 401) {
+        try {
+          const { data: refreshData } = await supabase.auth.refreshSession();
+          if (refreshData?.session?.access_token) {
+            headers['Authorization'] = `Bearer ${refreshData.session.access_token}`;
+            const retryRes = await fetch(url, { ...options, headers });
+            if (retryRes.ok) {
+              return await retryRes.json();
+            }
+          }
+        } catch {
+          // Fall through to error response
+        }
+      }
+
       const errJson = await response.json().catch(() => ({}));
       return {
         success: false,
