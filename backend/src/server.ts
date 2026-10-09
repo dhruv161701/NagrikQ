@@ -55,4 +55,3 @@ app.listen(PORT, async () => {
   // Start Telegram bot polling loop
   startTelegramPolling();
 });
-
