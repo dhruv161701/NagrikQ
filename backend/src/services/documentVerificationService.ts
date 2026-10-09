@@ -173,19 +173,49 @@ Return ONLY a valid JSON object matching this structure (no markdown fences, no 
       if (jsonMatch) {
         const parsed = JSON.parse(jsonMatch[0]);
 
-        // Normalize and verify category match strictly
-        const detectedType = parsed.documentType || 'Unknown Document';
-        const normDetected = normalizeCategory(detectedType);
-        const normExpected = normalizeCategory(expectedCategory);
-        const isMatchedStrict = Boolean(parsed.isCategoryMatched) && (normDetected.includes(normExpected) || normExpected.includes(normDetected));
+        // Mask Aadhaar numbers if detected
+        let docNum = parsed.documentNumber || null;
+        if (docNum && /aadhaar/i.test(expectedCategory)) {
+          const digits = String(docNum).replace(/\D/g, '');
+          if (digits.length >= 4) {
+            docNum = `XXXX-XXXX-${digits.slice(-4)}`;
+          }
+        }
+
+        let parsedExpiry = parseToIsoDate(parsed.expiryDate);
+        let parsedIssue = parseToIsoDate(parsed.issueDate);
+
+        // Aadhaar is always Lifetime validity - do not invent routine expiry
+        if (/aadhaar/i.test(expectedCategory) || /aadhaar/i.test(detectedType)) {
+          parsedExpiry = 'LIFETIME';
+        }
+
+        // Standard Indian Government validity rules:
+        // Income Certificate: Valid for 3 Years from issue date (unless explicit expiry provided)
+        if (/income/i.test(expectedCategory) || /income/i.test(detectedType)) {
+          if (!parsedExpiry && parsedIssue && parsedIssue !== 'LIFETIME') {
+            const parts = parsedIssue.split('-');
+            if (parts.length === 3) {
+              const yr = parseInt(parts[0], 10);
+              parsedExpiry = `${yr + 3}-${parts[1]}-${parts[2]}`;
+            }
+          }
+        }
+
+        // Caste, Birth, Residence/Domicile Certificates have Lifetime validity
+        if (/caste|birth|residence|domicile/i.test(expectedCategory) || /caste|birth|residence|domicile/i.test(detectedType)) {
+          if (!parsedExpiry) {
+            parsedExpiry = 'LIFETIME';
+          }
+        }
 
         return {
           documentType: detectedType,
           isCategoryMatched: isMatchedStrict,
-          issueDate: parseToIsoDate(parsed.issueDate),
-          expiryDate: parseToIsoDate(parsed.expiryDate),
+          issueDate: parsedIssue,
+          expiryDate: parsedExpiry,
           holderName: parsed.holderName || null,
-          documentNumber: parsed.documentNumber || null,
+          documentNumber: docNum,
           confidenceScore: typeof parsed.confidenceScore === 'number' ? parsed.confidenceScore : 0.9,
           extractedText: parsed.summary,
         };
@@ -196,7 +226,6 @@ Return ONLY a valid JSON object matching this structure (no markdown fences, no 
   }
 
   // Safe fallback if Gemini API is unreachable or unreadable:
-  // NEVER trust filename to approve a document! Require explicit visual match!
   return {
     documentType: 'Unverified Document',
     isCategoryMatched: false,
@@ -249,14 +278,12 @@ export const verifyAndProcessDocument = async (
   // Step 3: AI Document Extraction via Gemini AI
   const extracted = await extractDocumentMetadataWithGemini(fileData, expectedCategory, fileName);
 
-  // Step 4: Validate Expiry Date
-  const isExpired = checkIsExpired(extracted.expiryDate);
-
-  if (isExpired) {
+  // Step 4: Validate Category Match & Ambiguity
+  if (!extracted.isCategoryMatched) {
     return {
       isVerified: false,
-      verificationStatus: 'EXPIRED',
-      failureReason: `Document verification failed: The uploaded ${extracted.documentType} expired on ${extracted.expiryDate}. Expired documents cannot be accepted or marked as verified.`,
+      verificationStatus: 'REJECTED',
+      failureReason: `Document category mismatch: Uploaded file does not match expected category "${expectedCategory}". Detected document type: "${extracted.documentType}".`,
       extractedInfo: {
         documentType: extracted.documentType,
         issueDate: extracted.issueDate,
@@ -269,12 +296,32 @@ export const verifyAndProcessDocument = async (
     };
   }
 
-  // Step 5: Validate Category Match & Confidence Score
-  if (!extracted.isCategoryMatched || extracted.confidenceScore < 0.5) {
+  // If AI verification is uncertain (confidence score below 0.6), return NEEDS_REVIEW instead of falsely approving
+  if (extracted.confidenceScore < 0.6) {
     return {
       isVerified: false,
-      verificationStatus: 'REJECTED',
-      failureReason: `Document category mismatch: Uploaded file does not match expected category "${expectedCategory}". Detected document type: "${extracted.documentType}".`,
+      verificationStatus: 'NEEDS_REVIEW',
+      failureReason: `Document readability or confidence is uncertain (Confidence: ${(extracted.confidenceScore * 100).toFixed(0)}%). Please provide a clearer scanned copy for official verification.`,
+      extractedInfo: {
+        documentType: extracted.documentType,
+        issueDate: extracted.issueDate,
+        expiryDate: extracted.expiryDate,
+        holderName: extracted.holderName,
+        documentNumber: extracted.documentNumber,
+        confidenceScore: extracted.confidenceScore,
+      },
+      fileHash,
+    };
+  }
+
+  // Step 5: Validate Expiry Date
+  const isExpired = checkIsExpired(extracted.expiryDate);
+
+  if (isExpired) {
+    return {
+      isVerified: false,
+      verificationStatus: 'EXPIRED',
+      failureReason: `Document verification failed: The uploaded ${extracted.documentType} expired on ${extracted.expiryDate}. Expired documents cannot be accepted or marked as verified.`,
       extractedInfo: {
         documentType: extracted.documentType,
         issueDate: extracted.issueDate,

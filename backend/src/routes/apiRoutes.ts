@@ -123,6 +123,7 @@ router.post('/rag/ask', askRagQuestion);
 // CLOUDINARY UPLOAD & FILE ROUTES
 router.post('/upload/cloudinary', uploadToCloudinary);
 router.post('/upload/verify-and-upload', verifyAndUploadDocument);
+router.post('/upload/verify-document', verifyAndUploadDocument);
 router.get('/upload/cloudinary/download', downloadFromCloudinary);
 router.post('/upload/cloudinary/download', downloadFromCloudinary);
 router.post('/upload/cloudinary/delete', deleteFromCloudinary);
