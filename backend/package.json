@@ -6,7 +6,10 @@
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
     "build": "tsc",
-    "start": "node dist/server.js"
+    "start": "node dist/server.js",
+    "link-telegram": "ts-node src/scripts/linkTelegramChat.ts",
+    "trigger-webhook": "ts-node src/scripts/triggerTestWebhook.ts",
+    "update-token": "ts-node src/scripts/updateBotToken.ts"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",

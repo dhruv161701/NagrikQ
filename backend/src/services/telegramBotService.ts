@@ -3,6 +3,7 @@ import { supabaseAdmin } from '../config/supabase';
 import { normalizePhoneNumber, isValidPhoneNumber } from '../utils/phoneUtils';
 
 dotenv.config();
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '8874803375:AAHHnLDMGA2tXkfIeMICfVoH9kSTf1EO1bI';
 const TELEGRAM_API_BASE = `https://api.telegram.org/bot${BOT_TOKEN}`;
@@ -49,7 +50,15 @@ export async function sendTelegramMessage(
       }),
     });
 
-    const data = await res.json();
+    const rawText = await res.text();
+    let data: any = {};
+    try {
+      data = JSON.parse(rawText);
+    } catch {
+      console.warn('[TELEGRAM_SEND_WARN] Proxy returned non-JSON body:', rawText.slice(0, 150));
+      return { success: false, error: 'Telegram API returned non-JSON response.' };
+    }
+
     if (!data.ok) {
       console.error('[TELEGRAM_SEND_ERROR]', data);
       return { success: false, error: data.description || 'Failed to send Telegram message.' };

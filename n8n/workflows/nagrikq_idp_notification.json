@@ -75,8 +75,10 @@
     {
       "parameters": {
         "requestMethod": "POST",
-        "url": "=https://api.telegram.org/bot8874803375:AAHHnLDMGA2tXkfIeMICfVoH9kSTf1EO1bI/sendMessage",
-        "options": {},
+        "url": "=https://api.telegram.org/bot8874803375:AAECsJ9jyBd8d-LlcNJMEpt1ZyYGqYbkHzQ/sendMessage",
+        "options": {
+          "allowUnauthorizedCerts": true
+        },
         "bodyParametersUi": {
           "parameter": [
             {
