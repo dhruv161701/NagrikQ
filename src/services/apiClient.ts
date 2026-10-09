@@ -9,69 +9,73 @@ export interface ApiResponse<T = any> {
     code: string;
     message: string;
   };
+  verificationStatus?: string;
+  extractedInfo?: any;
+  fileHash?: string;
+}
+
+async function request<T = any>(endpoint: string, options: RequestInit = {}): Promise<ApiResponse<T>> {
+  try {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      ...(options.headers as Record<string, string>),
+    };
+
+    // Read current Supabase session token
+    const { data } = await supabase.auth.getSession();
+    if (data?.session?.access_token) {
+      headers['Authorization'] = `Bearer ${data.session.access_token}`;
+    }
+
+    const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+    const url = cleanEndpoint.startsWith('/api/') ? cleanEndpoint : `${API_BASE_URL}${cleanEndpoint}`;
+
+    const response = await fetch(url, {
+      ...options,
+      headers,
+    });
+
+    if (!response.ok) {
+      const errJson = await response.json().catch(() => ({}));
+      return {
+        success: false,
+        error: errJson.error || {
+          code: `HTTP_${response.status}`,
+          message: response.statusText || 'API Request failed.',
+        },
+      };
+    }
+
+    return await response.json();
+  } catch (err: any) {
+    // Return clear error without breaking UI execution
+    return {
+      success: false,
+      error: {
+        code: 'NETWORK_ERROR',
+        message: err.message || 'Failed to connect to NagrikQ Backend API server.',
+      },
+    };
+  }
 }
 
 export const apiClient = {
+  request,
   async get<T = any>(endpoint: string): Promise<ApiResponse<T>> {
-    return this.request<T>(endpoint, { method: 'GET' });
+    return request<T>(endpoint, { method: 'GET' });
   },
 
   async post<T = any>(endpoint: string, body?: any): Promise<ApiResponse<T>> {
-    return this.request<T>(endpoint, {
+    return request<T>(endpoint, {
       method: 'POST',
       body: JSON.stringify(body),
     });
   },
 
   async patch<T = any>(endpoint: string, body?: any): Promise<ApiResponse<T>> {
-    return this.request<T>(endpoint, {
+    return request<T>(endpoint, {
       method: 'PATCH',
       body: JSON.stringify(body),
     });
-  },
-
-  async request<T = any>(endpoint: string, options: RequestInit = {}): Promise<ApiResponse<T>> {
-    try {
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-        ...(options.headers as Record<string, string>),
-      };
-
-      // Read current Supabase session token
-      const { data } = await supabase.auth.getSession();
-      if (data?.session?.access_token) {
-        headers['Authorization'] = `Bearer ${data.session.access_token}`;
-      }
-
-      const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
-      const url = cleanEndpoint.startsWith('/api/') ? cleanEndpoint : `${API_BASE_URL}${cleanEndpoint}`;
-
-      const response = await fetch(url, {
-        ...options,
-        headers,
-      });
-
-      if (!response.ok) {
-        const errJson = await response.json().catch(() => ({}));
-        return {
-          success: false,
-          error: errJson.error || {
-            code: `HTTP_${response.status}`,
-            message: response.statusText || 'API Request failed.',
-          },
-        };
-      }
-
-      return await response.json();
-    } catch (err: any) {
-      // Return clear error without breaking UI execution
-      return {
-        success: false,
-        error: {
-          code: 'NETWORK_ERROR',
-          message: err.message || 'Failed to connect to NagrikQ Backend API server.',
-        },
-      };
-    }
   },
 };

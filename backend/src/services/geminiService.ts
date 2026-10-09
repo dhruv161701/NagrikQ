@@ -12,13 +12,17 @@ const getGenAI = (): GoogleGenerativeAI => {
 export const geminiChatModel = {
   generateContent: async (prompt: string) => {
     const genAI = getGenAI();
-    try {
-      const model = genAI.getGenerativeModel({ model: 'gemini-3.5-flash' });
-      return await model.generateContent(prompt);
-    } catch {
-      const fallbackModel = genAI.getGenerativeModel({ model: 'gemini-3.5-flash-lite' });
-      return await fallbackModel.generateContent(prompt);
+    const candidateModels = ['gemini-1.5-flash', 'gemini-1.5-flash-8b', 'gemini-1.5-pro'];
+    for (const mName of candidateModels) {
+      try {
+        const model = genAI.getGenerativeModel({ model: mName });
+        return await model.generateContent(prompt);
+      } catch {
+        // try next candidate
+      }
     }
+    const fallbackModel = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    return await fallbackModel.generateContent(prompt);
   },
 };
 
@@ -105,10 +109,18 @@ Context:
 
   try {
     let result;
-    try {
-      result = await genAI.getGenerativeModel({ model: 'gemini-3.5-flash' }).generateContent(fullPrompt);
-    } catch {
-      result = await genAI.getGenerativeModel({ model: 'gemini-3.5-flash-lite' }).generateContent(fullPrompt);
+    const candidateModels = ['gemini-1.5-flash', 'gemini-1.5-flash-8b', 'gemini-1.5-pro'];
+    for (const mName of candidateModels) {
+      try {
+        result = await genAI.getGenerativeModel({ model: mName }).generateContent(fullPrompt);
+        if (result) break;
+      } catch {
+        // try next candidate model
+      }
+    }
+
+    if (!result) {
+      result = await genAI.getGenerativeModel({ model: 'gemini-1.5-flash' }).generateContent(fullPrompt);
     }
 
     const response = await result.response;

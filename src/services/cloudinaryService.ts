@@ -49,6 +49,45 @@ export function fileToDataUrl(file: File): Promise<string> {
  * Tries the backend proxy endpoint first, and automatically falls back to
  * direct browser-signed Cloudinary upload for maximum reliability.
  */
+/**
+ * Uploads and verifies a document using Gemini AI backend OCR verification.
+ * Enforces category match, expiry date check, and duplicate check.
+ * ONLY stores in Cloudinary if ALL checks pass!
+ */
+export async function verifyAndUploadDocumentWithAI(
+  file: File,
+  documentCategory: string,
+  userId?: string
+): Promise<CloudinaryUploadResult & { extractedInfo?: any; verificationStatus: string }> {
+  const cleanUserId = (userId || 'user_general').replace(/[^a-zA-Z0-9_-]/g, '_');
+  const fileData = await fileToDataUrl(file);
+
+  const apiRes = await apiClient.post<CloudinaryUploadResult & { extractedInfo?: any; verificationStatus: string }>(
+    '/upload/verify-and-upload',
+    {
+      fileData,
+      fileName: file.name,
+      documentCategory,
+      userId: cleanUserId,
+    }
+  );
+
+  if (!apiRes.success || !apiRes.data?.secureUrl) {
+    const errMsg = apiRes.error?.message || 'Document failed AI verification checks.';
+    const status = apiRes.verificationStatus || (apiRes.data as any)?.verificationStatus || 'REJECTED';
+    const err = new Error(errMsg);
+    (err as any).verificationStatus = status;
+    (err as any).extractedInfo = apiRes.extractedInfo || (apiRes.data as any)?.extractedInfo;
+    throw err;
+  }
+
+  return {
+    ...apiRes.data,
+    verificationStatus: apiRes.verificationStatus || (apiRes.data as any)?.verificationStatus || 'VERIFIED',
+    extractedInfo: apiRes.extractedInfo || (apiRes.data as any)?.extractedInfo,
+  };
+}
+
 export async function uploadDocumentToCloudinary(
   file: File,
   userId?: string
@@ -70,7 +109,7 @@ export async function uploadDocumentToCloudinary(
       return apiRes.data;
     }
   } catch (backendErr) {
-    console.warn('[Cloudinary Service] Backend upload skipped/failed, using direct fallback:', backendErr);
+    console.warn('[Cloudinary Service] Backend upload skipped/failed:', backendErr);
   }
 
   // 2. Direct Signed Upload to Cloudinary (Fallback)

@@ -159,3 +159,64 @@ export const deleteFromCloudinary = async (
     });
   }
 };
+
+/**
+ * Controller to verify document authenticity, expiry date, category, and duplicate status
+ * using Gemini AI OCR before storing in Cloudinary as an approved asset.
+ */
+export const verifyAndUploadDocument = async (
+  req: AuthenticatedRequest,
+  res: Response
+): Promise<void> => {
+  try {
+    const { fileData, fileName, documentCategory, userId: reqUserId } = req.body;
+
+    if (!fileData) {
+      res.status(400).json({
+        success: false,
+        error: { code: 'INVALID_INPUT', message: 'fileData is required for document verification.' },
+      });
+      return;
+    }
+
+    const userId = req.user?.id || reqUserId || 'user_general';
+    const category = documentCategory || 'General Document';
+    const name = fileName || 'document';
+
+    const { verifyAndProcessDocument } = await import('../services/documentVerificationService');
+    const result = await verifyAndProcessDocument(fileData, category, userId, name);
+
+    if (!result.isVerified) {
+      res.status(400).json({
+        success: false,
+        verificationStatus: result.verificationStatus,
+        error: {
+          code: `VERIFICATION_${result.verificationStatus}`,
+          message: result.failureReason || 'Document verification failed. Asset was not stored.',
+        },
+        extractedInfo: result.extractedInfo,
+        fileHash: result.fileHash,
+      });
+      return;
+    }
+
+    res.json({
+      success: true,
+      verificationStatus: result.verificationStatus,
+      data: {
+        secureUrl: result.cloudinaryUrl,
+        publicId: result.cloudinaryPublicId,
+        fileName: name,
+        fileHash: result.fileHash,
+        extractedInfo: result.extractedInfo,
+      },
+    });
+  } catch (err: any) {
+    console.error('[Document Verification & Upload Error]', err);
+    res.status(500).json({
+      success: false,
+      error: { code: 'SERVER_ERROR', message: err.message || 'Document verification pipeline error.' },
+    });
+  }
+};
+

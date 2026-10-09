@@ -60,6 +60,7 @@ import {
   uploadToCloudinary,
   downloadFromCloudinary,
   deleteFromCloudinary,
+  verifyAndUploadDocument,
 } from '../controllers/uploadController';
 import { askRagQuestion } from '../controllers/aiController';
 import {
@@ -116,6 +117,7 @@ router.post('/rag/ask', askRagQuestion);
 
 // CLOUDINARY UPLOAD & FILE ROUTES
 router.post('/upload/cloudinary', uploadToCloudinary);
+router.post('/upload/verify-and-upload', verifyAndUploadDocument);
 router.get('/upload/cloudinary/download', downloadFromCloudinary);
 router.post('/upload/cloudinary/download', downloadFromCloudinary);
 router.post('/upload/cloudinary/delete', deleteFromCloudinary);
