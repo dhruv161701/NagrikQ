@@ -23,6 +23,8 @@ import {
   FileText,
   ShieldCheck,
   RefreshCw,
+  ExternalLink,
+  Calendar,
 } from 'lucide-react';
 import { supabase } from '../../config/supabase';
 import { useNavigate } from 'react-router-dom';
@@ -46,14 +48,29 @@ export interface VaultDoc {
   previewDataUrl?: string;
   status: 'VERIFIED' | 'SUBMITTED' | 'NEEDS_REVIEW' | 'EXPIRED';
   uploadedAt: string;
-  issueDate?: string;
+  issueDate?: string | null;
   validityPeriod: string;
-  expiryDate: string;
+  expiryDate?: string | null;
   documentNumber?: string;
+  holderName?: string;
+  issuingAuthority?: string;
+  extractedMetadata?: any;
+  remainingValidity?: string;
+  isExpired?: boolean;
+  isExpiringSoon?: boolean;
+  daysRemaining?: number | null;
 }
 
-export const getDaysRemaining = (expiryDateStr?: string): number | null => {
-  if (!expiryDateStr || expiryDateStr.includes('Lifetime') || expiryDateStr.includes('Not applicable')) return null;
+export const formatDisplayDate = (dateStr?: string | null): string => {
+  if (!dateStr) return 'Not available';
+  if (dateStr === 'LIFETIME' || /lifetime|permanent/i.test(dateStr)) return 'Permanent / Lifetime Validity';
+  const parsed = new Date(dateStr);
+  if (isNaN(parsed.getTime())) return dateStr;
+  return parsed.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+};
+
+export const getDaysRemaining = (expiryDateStr?: string | null): number | null => {
+  if (!expiryDateStr || expiryDateStr.includes('Lifetime') || expiryDateStr.includes('Permanent') || expiryDateStr === 'LIFETIME') return null;
   const expiry = new Date(expiryDateStr);
   if (isNaN(expiry.getTime())) return null;
   const now = new Date();
@@ -61,24 +78,30 @@ export const getDaysRemaining = (expiryDateStr?: string): number | null => {
   return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 };
 
-export const formatRemainingValidity = (expiryDateStr?: string, validityPeriodStr?: string): string => {
-  if (validityPeriodStr?.toLowerCase().includes('lifetime') || expiryDateStr?.includes('Lifetime')) {
+export const formatRemainingValidity = (
+  expiryDateStr?: string | null,
+  validityPeriodStr?: string,
+  serverRemainingValidity?: string
+): string => {
+  if (serverRemainingValidity) return serverRemainingValidity;
+  if (!expiryDateStr) {
+    if (validityPeriodStr?.toLowerCase().includes('lifetime')) return 'Lifetime Validity';
+    return 'Needs review';
+  }
+  if (expiryDateStr === 'LIFETIME' || /lifetime|permanent/i.test(expiryDateStr)) {
     return 'Lifetime Validity';
   }
-  if (!expiryDateStr || expiryDateStr.includes('Not applicable')) {
-    return 'No Expiry Date / Permanent';
-  }
   const days = getDaysRemaining(expiryDateStr);
-  if (days === null) return validityPeriodStr || 'Valid';
+  if (days === null) return 'Needs review';
   if (days <= 0) return 'Expired';
-  if (days < 30) return `${days} Days Remaining`;
+  if (days < 30) return `${days} Day${days > 1 ? 's' : ''} Remaining`;
 
   const years = Math.floor(days / 365);
   const remainingMonths = Math.floor((days % 365) / 30);
   if (years > 0) {
-    return `Approximately ${years} year${years > 1 ? 's' : ''}${remainingMonths > 0 ? ` and ${remainingMonths} month${remainingMonths > 1 ? 's' : ''}` : ''}`;
+    return `Approximately ${years} year${years > 1 ? 's' : ''}${remainingMonths > 0 ? ` and ${remainingMonths} month${remainingMonths > 1 ? 's' : ''}` : ''} remaining`;
   }
-  return `Approximately ${remainingMonths} month${remainingMonths > 1 ? 's' : ''}`;
+  return `Approximately ${remainingMonths} month${remainingMonths > 1 ? 's' : ''} remaining`;
 };
 
 const SUPPORTED_DOCUMENT_TYPES = [
@@ -90,6 +113,13 @@ const SUPPORTED_DOCUMENT_TYPES = [
   'Driving License',
   'PAN Card',
   'Ration Card',
+  'Electricity Bill',
+  'Bank Passbook / Statement',
+  'Disability Certificate',
+  'Senior Citizen Identity Card',
+  'Non-Creamy Layer (NCL) Certificate',
+  'EWS Certificate',
+  'Passport',
 ];
 
 export const UserDocumentsPage: React.FC = () => {
@@ -140,19 +170,50 @@ export const UserDocumentsPage: React.FC = () => {
         if (res.ok) {
           const json = await res.json();
           if (json.success && Array.isArray(json.data)) {
-            const mapped: VaultDoc[] = json.data.map((d: any) => ({
-              id: d.id,
-              name: d.requirement_name || 'Verified Certificate',
-              type: d.requirement_name || 'General Document',
-              fileName: d.file_name || 'document.pdf',
-              fileSize: d.file_size_bytes ? `${(d.file_size_bytes / (1024 * 1024)).toFixed(1)} MB` : '1.2 MB',
-              fileUrl: d.storage_path,
-              status: d.verification_status === 'VERIFIED' ? 'VERIFIED' : 'SUBMITTED',
-              uploadedAt: new Date(d.created_at || Date.now()).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
-              validityPeriod: d.validity_period || (d.requirement_name?.includes('Aadhaar') ? 'Lifetime Validity' : 'Valid for 3 Years'),
-              expiryDate: d.expiry_date || (d.requirement_name?.includes('Aadhaar') ? 'Lifetime Validity' : '2028-01-01'),
-              documentNumber: d.document_number,
-            }));
+            const seen = new Set<string>();
+            const uniqueDocs = json.data.filter((d: any) => {
+              const key = d.storage_path || d.id;
+              if (seen.has(key)) return false;
+              seen.add(key);
+              return true;
+            });
+
+            const mapped: VaultDoc[] = uniqueDocs.map((d: any) => {
+              const meta = d.extracted_metadata || {};
+              const isAadhaar = /aadhaar/i.test(d.requirement_name || '');
+              const isIncome = /income/i.test(d.requirement_name || '');
+
+              let policy = d.validity_period || meta.validityPolicy;
+              if (!policy) {
+                if (isAadhaar) policy = 'Permanent / Lifetime Validity (UIDAI)';
+                else if (isIncome) policy = 'Valid for 3 Years (Gujarat Revenue Dept)';
+                else policy = 'Standard Policy';
+              }
+
+              const expiryVal = d.expiry_date || (isAadhaar ? 'LIFETIME' : null);
+
+              return {
+                id: d.id,
+                name: d.requirement_name || 'Verified Certificate',
+                type: d.requirement_name || 'General Document',
+                fileName: d.file_name || 'document.pdf',
+                fileSize: d.file_size ? `${(d.file_size / (1024 * 1024)).toFixed(1)} MB` : (d.file_size_bytes ? `${(d.file_size_bytes / (1024 * 1024)).toFixed(1)} MB` : '1.2 MB'),
+                fileUrl: d.storage_path,
+                status: d.verification_status === 'VERIFIED' ? 'VERIFIED' : 'SUBMITTED',
+                uploadedAt: new Date(d.uploaded_at || d.created_at || Date.now()).toLocaleDateString('en-IN', { month: 'short', day: 'numeric', year: 'numeric' }),
+                issueDate: d.issue_date || null,
+                validityPeriod: policy,
+                expiryDate: expiryVal,
+                documentNumber: meta.documentNumber || d.document_number || null,
+                holderName: meta.holderName || null,
+                issuingAuthority: meta.issuingAuthority || null,
+                extractedMetadata: meta,
+                remainingValidity: d.remaining_validity,
+                isExpired: d.is_expired,
+                isExpiringSoon: d.is_expiring_soon,
+                daysRemaining: d.days_remaining,
+              };
+            });
             setDocuments(mapped);
             setLoading(false);
             return;
@@ -162,26 +223,66 @@ export const UserDocumentsPage: React.FC = () => {
 
       // Supabase direct query fallback
       if (currentUser?.id) {
-        const { data: directDocs, error } = await supabase
+        let { data: directDocs, error } = await supabase
           .from('documents')
           .select('*')
           .eq('user_id', currentUser.id)
-          .order('created_at', { ascending: false });
+          .order('uploaded_at', { ascending: false });
+
+        if (error) {
+          const fallbackRes = await supabase
+            .from('documents')
+            .select('*')
+            .eq('user_id', currentUser.id);
+          directDocs = fallbackRes.data;
+          error = fallbackRes.error;
+        }
 
         if (!error && directDocs) {
-          const mapped: VaultDoc[] = directDocs.map((d: any) => ({
-            id: d.id,
-            name: d.requirement_name || 'Verified Certificate',
-            type: d.requirement_name || 'General Document',
-            fileName: d.file_name || 'document.pdf',
-            fileSize: d.file_size_bytes ? `${(d.file_size_bytes / (1024 * 1024)).toFixed(1)} MB` : '1.2 MB',
-            fileUrl: d.storage_path,
-            status: d.verification_status === 'VERIFIED' ? 'VERIFIED' : 'SUBMITTED',
-            uploadedAt: new Date(d.created_at || Date.now()).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
-            validityPeriod: d.validity_period || (d.requirement_name?.includes('Aadhaar') ? 'Lifetime Validity' : 'Valid for 3 Years'),
-            expiryDate: d.expiry_date || (d.requirement_name?.includes('Aadhaar') ? 'Lifetime Validity' : '2028-01-01'),
-            documentNumber: d.document_number,
-          }));
+          const seen = new Set<string>();
+          const uniqueDocs = directDocs.filter((d: any) => {
+            const key = d.storage_path || d.id;
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+          });
+
+          const mapped: VaultDoc[] = uniqueDocs.map((d: any) => {
+            const meta = d.extracted_metadata || {};
+            const isAadhaar = /aadhaar/i.test(d.requirement_name || '');
+            const isIncome = /income/i.test(d.requirement_name || '');
+
+            let policy = d.validity_period || meta.validityPolicy;
+            if (!policy) {
+              if (isAadhaar) policy = 'Permanent / Lifetime Validity (UIDAI)';
+              else if (isIncome) policy = 'Valid for 3 Years (Gujarat Revenue Dept)';
+              else policy = 'Standard Policy';
+            }
+
+            const expiryVal = d.expiry_date || (isAadhaar ? 'LIFETIME' : null);
+
+            return {
+              id: d.id,
+              name: d.requirement_name || 'Verified Certificate',
+              type: d.requirement_name || 'General Document',
+              fileName: d.file_name || 'document.pdf',
+              fileSize: d.file_size ? `${(d.file_size / (1024 * 1024)).toFixed(1)} MB` : (d.file_size_bytes ? `${(d.file_size_bytes / (1024 * 1024)).toFixed(1)} MB` : '1.2 MB'),
+              fileUrl: d.storage_path,
+              status: d.verification_status === 'VERIFIED' ? 'VERIFIED' : 'SUBMITTED',
+              uploadedAt: new Date(d.uploaded_at || d.created_at || Date.now()).toLocaleDateString('en-IN', { month: 'short', day: 'numeric', year: 'numeric' }),
+              issueDate: d.issue_date || null,
+              validityPeriod: policy,
+              expiryDate: expiryVal,
+              documentNumber: meta.documentNumber || d.document_number || null,
+              holderName: meta.holderName || null,
+              issuingAuthority: meta.issuingAuthority || null,
+              extractedMetadata: meta,
+              remainingValidity: d.remaining_validity,
+              isExpired: d.is_expired,
+              isExpiringSoon: d.is_expiring_soon,
+              daysRemaining: d.days_remaining,
+            };
+          });
           setDocuments(mapped);
           setLoading(false);
           return;
@@ -266,9 +367,17 @@ export const UserDocumentsPage: React.FC = () => {
 
       const extracted = uploadResult.extractedInfo || {};
       const docTitle = extracted.documentType || selectedCategory;
-      const extractedIssue = extracted.issueDate || '2025-01-01';
-      const extractedExpiry = extracted.expiryDate || (selectedCategory === 'Aadhaar Card' ? 'Lifetime Validity' : '2028-01-01');
-      const validityPolicy = selectedCategory === 'Aadhaar Card' ? 'Lifetime Validity' : 'Valid for 3 Years';
+      const isAadhaar = /aadhaar/i.test(selectedCategory) || /aadhaar/i.test(docTitle);
+      const isIncome = /income/i.test(selectedCategory) || /income/i.test(docTitle);
+
+      const extractedIssue = extracted.issueDate || null;
+      const extractedExpiry = extracted.expiryDate || (isAadhaar ? 'LIFETIME' : null);
+      let validityPolicy = extracted.validityPolicy;
+      if (!validityPolicy) {
+        if (isAadhaar) validityPolicy = 'Permanent / Lifetime Validity (UIDAI)';
+        else if (isIncome) validityPolicy = 'Valid for 3 Years (Gujarat Revenue Dept)';
+        else validityPolicy = 'Standard Policy';
+      }
 
       const newDoc: VaultDoc = {
         id: docId,
@@ -281,11 +390,21 @@ export const UserDocumentsPage: React.FC = () => {
         cloudinaryFolder: uploadResult.folder,
         previewDataUrl: safePreviewDataUrl,
         status: uploadResult.verificationStatus === 'VERIFIED' ? 'VERIFIED' : 'SUBMITTED',
-        uploadedAt: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+        uploadedAt: new Date().toLocaleDateString('en-IN', { month: 'short', day: 'numeric', year: 'numeric' }),
         issueDate: extractedIssue,
         validityPeriod: validityPolicy,
         expiryDate: extractedExpiry,
         documentNumber: extracted.documentNumber ? `XXXX-XXXX-${extracted.documentNumber.slice(-4)}` : undefined,
+        holderName: extracted.holderName || undefined,
+        issuingAuthority: extracted.issuingAuthority || undefined,
+        extractedMetadata: {
+          holderName: extracted.holderName,
+          documentNumber: extracted.documentNumber,
+          issuingAuthority: extracted.issuingAuthority,
+          validityPolicy: validityPolicy,
+          confidenceScore: extracted.confidenceScore,
+          summary: extracted.summary,
+        },
       };
 
       // Persist to database
@@ -305,6 +424,16 @@ export const UserDocumentsPage: React.FC = () => {
               storagePath: uploadResult.secureUrl,
               verificationStatus: uploadResult.verificationStatus === 'VERIFIED' ? 'VERIFIED' : 'PENDING',
               fileSize: selectedFile.size,
+              issueDate: extractedIssue,
+              expiryDate: extractedExpiry,
+              extractedMetadata: {
+                holderName: extracted.holderName,
+                documentNumber: extracted.documentNumber,
+                issuingAuthority: extracted.issuingAuthority,
+                validityPolicy: validityPolicy,
+                confidenceScore: extracted.confidenceScore,
+                summary: extracted.summary,
+              },
             }),
           });
         }
@@ -321,16 +450,32 @@ export const UserDocumentsPage: React.FC = () => {
       clearInterval(stepInterval);
       console.error('[Document Verification Error]', err);
 
-      const status = err.verificationStatus || 'REJECTED';
+      const status = err.verificationStatus || '';
+      const code = err.code || '';
+      const msg = err.message || '';
 
-      if (status === 'EXPIRED') {
-        setFileError(`Your ${selectedCategory} has expired. Please upload a valid, non-expired certificate.`);
-      } else if (status === 'REJECTED' || err.message?.includes('category')) {
-        setFileError(`Document type mismatch! You selected "${selectedCategory}", but the uploaded document does not match this category. Please upload the correct document.`);
-      } else if (err.message?.includes('Duplicate')) {
-        setFileError(err.message);
+      if (status === 'CATEGORY_MISMATCH' || code === 'VERIFICATION_CATEGORY_MISMATCH') {
+        setFileError(msg || `Document type mismatch! You selected "${selectedCategory}", but the uploaded document does not match this category. Please upload the correct document.`);
+      } else if (status === 'UNREADABLE' || code === 'UNREADABLE_DOCUMENT') {
+        setFileError(msg || 'Unreadable document! The document text, seals, or stamps could not be verified clearly. Please provide a clear, sharp, unblurred scanned copy or PDF.');
+      } else if (status === 'NEEDS_REVIEW' || code === 'METADATA_AMBIGUOUS') {
+        setFileError(msg || 'Missing or ambiguous metadata! Certificate details could not be established reliably. Please re-upload a clear copy with visible dates and numbers.');
+      } else if (status === 'EXPIRED' || code === 'DOCUMENT_EXPIRED') {
+        setFileError(msg || `Document expired! Your ${selectedCategory} has expired. Please upload a currently valid, active certificate.`);
+      } else if (status === 'UNSUPPORTED_CATEGORY' || code === 'UNSUPPORTED_CATEGORY') {
+        setFileError(msg || `Unsupported document category! "${selectedCategory}" is not configured for automatic verification.`);
+      } else if (status === 'DUPLICATE' || code === 'DUPLICATE_DOCUMENT') {
+        setFileError(msg || 'Duplicate document detected! An identical verified document is already registered in your vault.');
+      } else if (status === 'INVALID_FILE' || code === 'INVALID_FILE_SIGNATURE' || code === 'FILE_TOO_LARGE') {
+        setFileError(msg || 'Invalid file format or file exceeds the 10 MB limit. Supported formats: PDF, PNG, JPG, JPEG.');
+      } else if (code === 'GEMINI_QUOTA_ERROR' || code === 'HTTP_429') {
+        setFileError('AI verification service rate limit exceeded. Please wait a few seconds and retry.');
+      } else if (status === 'AUTH_ERROR' || code === 'GEMINI_AUTH_ERROR' || code === 'GEMINI_PERMISSION_ERROR') {
+        setFileError('AI verification service configuration or permission notice. Verification is using server inspection engine.');
+      } else if (status === 'STORAGE_ERROR' || code === 'CLOUDINARY_UPLOAD_FAILED' || code === 'CLOUDINARY_UPLOAD_ERROR') {
+        setFileError(msg || 'Storage upload failure: Could not save the verified file to Cloudinary. Please try again.');
       } else {
-        setFileError(`Verification Service Warning: ${err.message || 'Verification failed. Please retry.'}`);
+        setFileError(msg || 'Verification failed. Please check your document and retry.');
       }
     } finally {
       setIsUploading(false);
@@ -592,21 +737,25 @@ export const UserDocumentsPage: React.FC = () => {
                       <span style={{ color: 'var(--color-neutral-600)' }}>Validity Policy:</span>
                       <strong>{doc.validityPeriod}</strong>
                     </div>
-                    {doc.issueDate && (
-                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px' }}>
-                        <span style={{ color: 'var(--color-neutral-600)' }}>Extracted Issue Date:</span>
-                        <span>{doc.issueDate}</span>
-                      </div>
-                    )}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px' }}>
+                      <span style={{ color: 'var(--color-neutral-600)' }}>Issue Date:</span>
+                      <span style={{ fontWeight: 600, color: doc.issueDate ? 'var(--color-neutral-900)' : 'var(--color-neutral-500)' }}>
+                        {doc.issueDate ? formatDisplayDate(doc.issueDate) : 'Not available'}
+                      </span>
+                    </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px' }}>
                       <span style={{ color: 'var(--color-neutral-600)' }}>Expiry Date:</span>
                       <strong style={{ color: isExpiringSoon ? '#B45309' : isExpired ? '#DC2626' : 'var(--color-neutral-900)' }}>
-                        {doc.expiryDate}
+                        {doc.expiryDate === 'LIFETIME'
+                          ? 'Permanent / Lifetime Validity'
+                          : doc.expiryDate
+                          ? formatDisplayDate(doc.expiryDate)
+                          : 'Not available'}
                       </strong>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', borderTop: '1px dashed rgba(0,0,0,0.1)', paddingTop: '6px' }}>
                       <span style={{ color: 'var(--color-neutral-600)' }}>Remaining Validity:</span>
-                      <strong style={{ color: isExpired ? '#DC2626' : '#059669' }}>
+                      <strong style={{ color: isExpired ? '#DC2626' : isExpiringSoon ? '#B45309' : '#059669' }}>
                         {remainingText}
                       </strong>
                     </div>
@@ -872,48 +1021,280 @@ export const UserDocumentsPage: React.FC = () => {
         </div>
       </Modal>
 
-      {/* VIEW DOCUMENT MODAL */}
+      {/* PROPER VIEW DOCUMENT MODAL */}
       {viewingDoc && (
         <Modal
           isOpen={Boolean(viewingDoc)}
           onClose={() => setViewingDoc(null)}
-          title={`Document View: ${viewingDoc.name}`}
+          title={`Document Details: ${viewingDoc.name}`}
+          maxWidth="920px"
         >
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            {/* Top Info Banner */}
             <div
               style={{
-                backgroundColor: 'var(--color-neutral-100)',
-                borderRadius: '12px',
-                padding: '16px',
-                minHeight: '260px',
                 display: 'flex',
+                flexWrap: 'wrap',
+                justifyContent: 'space-between',
                 alignItems: 'center',
-                justifyContent: 'center',
-                overflow: 'hidden',
+                gap: '12px',
+                padding: '12px 16px',
+                backgroundColor: 'var(--color-neutral-50)',
+                borderRadius: '12px',
+                border: '1px solid var(--color-border)',
               }}
             >
-              {viewingDoc.previewDataUrl || viewingDoc.fileUrl ? (
-                <iframe
-                  src={getCloudinaryViewUrl(viewingDoc.fileUrl || viewingDoc.previewDataUrl || '')}
-                  title={viewingDoc.name}
-                  style={{ width: '100%', height: '380px', border: 'none', borderRadius: '8px' }}
-                />
-              ) : (
-                <FileText size={48} style={{ color: 'var(--color-neutral-400)' }} />
-              )}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <span
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '4px 10px',
+                    borderRadius: '8px',
+                    fontSize: '0.82rem',
+                    fontWeight: 700,
+                    backgroundColor: viewingDoc.status === 'VERIFIED' ? '#ECFDF5' : '#FEF3C7',
+                    color: viewingDoc.status === 'VERIFIED' ? '#047857' : '#B45309',
+                    border: viewingDoc.status === 'VERIFIED' ? '1px solid #A7F3D0' : '1px solid #FDE68A',
+                  }}
+                >
+                  <CheckCircle2 size={14} />
+                  {viewingDoc.status === 'VERIFIED' ? 'AI-Verified Document' : 'Submitted'}
+                </span>
+                <span style={{ fontSize: '0.85rem', color: 'var(--color-neutral-600)', fontWeight: 600 }}>
+                  Category: <strong>{viewingDoc.type}</strong>
+                </span>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: '0.82rem', color: 'var(--color-neutral-500)' }}>
+                <span>Uploaded: {viewingDoc.uploadedAt}</span>
+                {viewingDoc.fileSize && <span>• Size: {viewingDoc.fileSize}</span>}
+              </div>
             </div>
 
-            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px' }}>
+            {/* Split Content: Preview on Left, Verified Details on Right */}
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+                gap: '20px',
+                alignItems: 'start',
+              }}
+            >
+              {/* Document Preview Box */}
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '10px',
+                }}
+              >
+                <div
+                  style={{
+                    backgroundColor: '#F8FAFC',
+                    borderRadius: '12px',
+                    border: '1px solid #E2E8F0',
+                    minHeight: '380px',
+                    maxHeight: '480px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    overflow: 'hidden',
+                    position: 'relative',
+                    padding: '8px',
+                  }}
+                >
+                  {viewingDoc.previewDataUrl || viewingDoc.fileUrl ? (
+                    <img
+                      src={getCloudinaryViewUrl(viewingDoc.fileUrl || viewingDoc.previewDataUrl || '')}
+                      alt={viewingDoc.name}
+                      style={{
+                        maxWidth: '100%',
+                        maxHeight: '460px',
+                        objectFit: 'contain',
+                        borderRadius: '8px',
+                        boxShadow: '0 2px 10px rgba(0,0,0,0.06)',
+                      }}
+                      onError={(e) => {
+                        const target = e.currentTarget;
+                        target.style.display = 'none';
+                        const iframe = document.createElement('iframe');
+                        iframe.src = viewingDoc.fileUrl || '';
+                        iframe.style.width = '100%';
+                        iframe.style.height = '420px';
+                        iframe.style.border = 'none';
+                        iframe.style.borderRadius = '8px';
+                        target.parentElement?.appendChild(iframe);
+                      }}
+                    />
+                  ) : (
+                    <div style={{ textAlign: 'center', padding: '30px' }}>
+                      <FileText size={56} style={{ color: 'var(--color-neutral-400)', margin: '0 auto 12px auto' }} />
+                      <p style={{ color: 'var(--color-neutral-600)', margin: 0, fontWeight: 600 }}>No visual preview available</p>
+                    </div>
+                  )}
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem', color: 'var(--color-neutral-500)', padding: '0 4px' }}>
+                  <span>{viewingDoc.fileName}</span>
+                  {viewingDoc.fileUrl && (
+                    <a
+                      href={viewingDoc.fileUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{ color: 'var(--color-primary-700)', fontWeight: 600, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                    >
+                      Open Original File <ExternalLink size={12} />
+                    </a>
+                  )}
+                </div>
+              </div>
+
+              {/* Verified Document Metadata Details Panel */}
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '14px',
+                  backgroundColor: 'white',
+                  borderRadius: '12px',
+                  border: '1px solid var(--color-border)',
+                  padding: '18px',
+                }}
+              >
+                <div style={{ borderBottom: '1px solid var(--color-neutral-200)', paddingBottom: '10px' }}>
+                  <h4 style={{ margin: 0, fontSize: '1rem', fontWeight: 800, color: 'var(--color-neutral-900)' }}>
+                    Extracted Document Information
+                  </h4>
+                  <span style={{ fontSize: '0.8rem', color: 'var(--color-neutral-500)' }}>
+                    Extracted from actual uploaded document payload
+                  </span>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '0.86rem' }}>
+                  {/* Holder Name */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '10px', paddingBottom: '8px', borderBottom: '1px dashed var(--color-neutral-200)' }}>
+                    <span style={{ color: 'var(--color-neutral-600)' }}>Holder Name:</span>
+                    <strong style={{ color: 'var(--color-neutral-900)', textAlign: 'right' }}>
+                      {viewingDoc.holderName || viewingDoc.extractedMetadata?.holderName || 'Not available'}
+                    </strong>
+                  </div>
+
+                  {/* Document / Certificate Number */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '10px', paddingBottom: '8px', borderBottom: '1px dashed var(--color-neutral-200)' }}>
+                    <span style={{ color: 'var(--color-neutral-600)' }}>Certificate / Doc ID:</span>
+                    <strong style={{ color: 'var(--color-neutral-900)', textAlign: 'right', fontFamily: 'monospace' }}>
+                      {viewingDoc.documentNumber || viewingDoc.extractedMetadata?.documentNumber || 'Not available'}
+                    </strong>
+                  </div>
+
+                  {/* Issuing Authority */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '10px', paddingBottom: '8px', borderBottom: '1px dashed var(--color-neutral-200)' }}>
+                    <span style={{ color: 'var(--color-neutral-600)' }}>Issuing Authority:</span>
+                    <span style={{ fontWeight: 600, color: 'var(--color-neutral-800)', textAlign: 'right', maxWidth: '60%' }}>
+                      {viewingDoc.issuingAuthority || viewingDoc.extractedMetadata?.issuingAuthority || 'Government Authority'}
+                    </span>
+                  </div>
+
+                  {/* Issue Date */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', paddingBottom: '8px', borderBottom: '1px dashed var(--color-neutral-200)' }}>
+                    <span style={{ color: 'var(--color-neutral-600)' }}>Official Issue Date:</span>
+                    <span style={{ fontWeight: 700, color: viewingDoc.issueDate ? 'var(--color-neutral-900)' : 'var(--color-neutral-500)' }}>
+                      {viewingDoc.issueDate ? formatDisplayDate(viewingDoc.issueDate) : 'Not available'}
+                    </span>
+                  </div>
+
+                  {/* Expiry Date */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', paddingBottom: '8px', borderBottom: '1px dashed var(--color-neutral-200)' }}>
+                    <span style={{ color: 'var(--color-neutral-600)' }}>Expiry Date:</span>
+                    <strong style={{ color: viewingDoc.isExpired ? '#DC2626' : viewingDoc.isExpiringSoon ? '#B45309' : 'var(--color-neutral-900)' }}>
+                      {viewingDoc.expiryDate === 'LIFETIME'
+                        ? 'Permanent / Lifetime Validity'
+                        : viewingDoc.expiryDate
+                        ? formatDisplayDate(viewingDoc.expiryDate)
+                        : 'Not available'}
+                    </strong>
+                  </div>
+
+                  {/* Validity Policy */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '10px', paddingBottom: '8px', borderBottom: '1px dashed var(--color-neutral-200)' }}>
+                    <span style={{ color: 'var(--color-neutral-600)' }}>Validity Policy:</span>
+                    <strong style={{ color: 'var(--color-neutral-800)', textAlign: 'right' }}>
+                      {viewingDoc.validityPeriod}
+                    </strong>
+                  </div>
+
+                  {/* Remaining Validity */}
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      gap: '10px',
+                      padding: '10px 12px',
+                      borderRadius: '8px',
+                      backgroundColor: viewingDoc.isExpired
+                        ? '#FEE2E2'
+                        : viewingDoc.isExpiringSoon
+                        ? '#FEF3C7'
+                        : '#ECFDF5',
+                    }}
+                  >
+                    <span style={{ fontWeight: 600, color: viewingDoc.isExpired ? '#991B1B' : viewingDoc.isExpiringSoon ? '#92400E' : '#065F46' }}>
+                      Remaining Validity:
+                    </span>
+                    <strong style={{ color: viewingDoc.isExpired ? '#DC2626' : viewingDoc.isExpiringSoon ? '#B45309' : '#059669', fontSize: '0.92rem' }}>
+                      {formatRemainingValidity(viewingDoc.expiryDate, viewingDoc.validityPeriod, viewingDoc.remainingValidity)}
+                    </strong>
+                  </div>
+                </div>
+
+                {/* AI Verification Seal */}
+                <div
+                  style={{
+                    marginTop: 'auto',
+                    padding: '10px 12px',
+                    borderRadius: '8px',
+                    backgroundColor: '#F0FDF4',
+                    border: '1px solid #BBF7D0',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '10px',
+                  }}
+                >
+                  <ShieldCheck size={20} style={{ color: '#16A34A', flexShrink: 0 }} />
+                  <span style={{ fontSize: '0.78rem', color: '#15803D', lineHeight: 1.35 }}>
+                    <strong>NagrikQ Verified:</strong> Confirmed by official Indian government document inspection engine.
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Action Buttons */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', borderTop: '1px solid var(--color-neutral-200)', paddingTop: '16px' }}>
               <Button variant="outline" onClick={() => setViewingDoc(null)}>
                 Close Viewer
               </Button>
-              <Button
-                variant="primary"
-                onClick={(e) => handleDownloadDoc(viewingDoc, e)}
-                icon={<Download size={16} />}
-              >
-                Download Document
-              </Button>
+
+              <div style={{ display: 'flex', gap: '10px' }}>
+                {viewingDoc.fileUrl && (
+                  <Button
+                    variant="secondary"
+                    onClick={() => window.open(viewingDoc.fileUrl, '_blank')}
+                    icon={<ExternalLink size={16} />}
+                  >
+                    Open Full Document
+                  </Button>
+                )}
+                <Button
+                  variant="primary"
+                  onClick={(e) => handleDownloadDoc(viewingDoc, e)}
+                  icon={<Download size={16} />}
+                >
+                  Download Document
+                </Button>
+              </div>
             </div>
           </div>
         </Modal>

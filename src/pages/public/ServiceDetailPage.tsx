@@ -169,7 +169,7 @@ export const ServiceDetailPage: React.FC = () => {
   // Compute available slots: For Today, strictly exclude past time slots. Tomorrow shows all slots.
   const availableSlotsForDate = useMemo(() => {
     if (serverSlotData?.slots && serverSlotData.slots.length > 0) {
-      return serverSlotData.slots.map((s) => s.timeSlot);
+      return serverSlotData.slots.map((s: any) => s.timeSlot || s.slot);
     }
     const todayStr = new Date().toISOString().split('T')[0];
     const isToday = selectedSlotDate === todayStr;
@@ -200,13 +200,14 @@ export const ServiceDetailPage: React.FC = () => {
     return STATE_CITIES[selectedState] || [];
   }, [selectedState]);
 
-  // Slot capacity based on service SLA length
+  // Slot capacity based on server slot configuration or SLA length
   const slotCapacity = useMemo(() => {
-    if (!service) return 6;
-    if (service.slotCapacity) return service.slotCapacity;
-    const days = service.processingTimeDays || 7;
+    if (serverSlotData?.slotCapacity) return serverSlotData.slotCapacity;
+    if (service?.slotCapacity) return service.slotCapacity;
+    if ((service as any)?.slot_capacity) return (service as any).slot_capacity;
+    const days = service?.processingTimeDays || 7;
     return Math.max(2, Math.floor(30 / (days > 10 ? 10 : 5)));
-  }, [service]);
+  }, [service, serverSlotData]);
 
   // Dynamically configured required documents for this service
   const applicableDocs = useMemo(() => {
@@ -703,10 +704,10 @@ export const ServiceDetailPage: React.FC = () => {
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', flexWrap: 'wrap', gap: '8px' }}>
               <label style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--color-neutral-800)' }}>
-                Select Booking Date & 30-Minute Time Slot
+                Select Booking Date & {serverSlotData?.slotDurationMinutes || service?.slotDurationMinutes || 30}-Minute Time Slot
               </label>
               <span style={{ fontSize: '11px', color: 'var(--color-neutral-600)' }}>
-                Capacity: <strong>{slotCapacity}/slot</strong>
+                Capacity: <strong>{serverSlotData?.slotCapacity || slotCapacity}/slot</strong>
               </span>
             </div>
 
@@ -770,24 +771,30 @@ export const ServiceDetailPage: React.FC = () => {
               </div>
             ) : (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '8px', maxHeight: '160px', overflowY: 'auto' }}>
-                {availableSlotsForDate.map((slot) => {
-                  const bookedCount = queueTokens.filter(
-                    (q) =>
-                      q.timeSlot === slot &&
-                      q.slotDate === selectedSlotDate &&
-                      q.serviceId === service.id &&
-                      q.status !== 'CANCELLED' &&
-                      q.status !== 'EXPIRED'
-                  ).length;
-                  const remaining = Math.max(0, slotCapacity - bookedCount);
-                  const isFull = remaining === 0;
+                {availableSlotsForDate.map((slot: string) => {
+                  const serverSlot = serverSlotData?.slots?.find((s: any) => (s.timeSlot || s.slot) === slot);
+                  const bookedCount = serverSlot
+                    ? serverSlot.bookedCount
+                    : queueTokens.filter(
+                        (q) =>
+                          q.timeSlot === slot &&
+                          q.slotDate === selectedSlotDate &&
+                          q.serviceId === service.id &&
+                          q.status !== 'CANCELLED' &&
+                          q.status !== 'EXPIRED'
+                      ).length;
+                  const currentCap = serverSlot?.slotCapacity || serverSlot?.capacity || slotCapacity;
+                  const remaining = serverSlot ? serverSlot.remaining : Math.max(0, currentCap - bookedCount);
+                  const isFull = serverSlot ? (!serverSlot.isAvailable || serverSlot.status === 'FULL') : remaining === 0;
+                  const isElapsed = serverSlot?.status === 'ELAPSED';
+                  const isDisabled = isFull || isElapsed;
                   const isSelected = selectedTimeSlot === slot;
 
                   return (
                     <button
                       type="button"
                       key={slot}
-                      disabled={isFull}
+                      disabled={isDisabled}
                       onClick={() => setSelectedTimeSlot(slot)}
                       style={{
                         padding: '8px 10px',
@@ -795,17 +802,17 @@ export const ServiceDetailPage: React.FC = () => {
                         border: `1.5px solid ${
                           isSelected
                             ? 'var(--color-saffron-600)'
-                            : isFull
+                            : isDisabled
                             ? 'var(--color-neutral-200)'
                             : 'var(--color-primary-300)'
                         }`,
                         backgroundColor: isSelected
                           ? 'var(--color-saffron-100)'
-                          : isFull
+                          : isDisabled
                           ? 'var(--color-neutral-100)'
                           : 'white',
-                        color: isFull ? 'var(--color-neutral-400)' : 'var(--color-neutral-900)',
-                        cursor: isFull ? 'not-allowed' : 'pointer',
+                        color: isDisabled ? 'var(--color-neutral-400)' : 'var(--color-neutral-900)',
+                        cursor: isDisabled ? 'not-allowed' : 'pointer',
                         display: 'flex',
                         flexDirection: 'column',
                         alignItems: 'center',
@@ -817,14 +824,16 @@ export const ServiceDetailPage: React.FC = () => {
                         style={{
                           fontSize: '10px',
                           fontWeight: 600,
-                          color: isFull
+                          color: isElapsed
+                            ? 'var(--color-neutral-500)'
+                            : isFull
                             ? 'var(--color-danger-600)'
                             : isSelected
                             ? 'var(--color-saffron-800)'
                             : 'var(--color-success-700)',
                         }}
                       >
-                        {isFull ? 'FULL' : `${remaining}/${slotCapacity} left`}
+                        {isElapsed ? 'ELAPSED' : isFull ? 'FULL' : `${remaining}/${currentCap} left`}
                       </span>
                     </button>
                   );
@@ -840,7 +849,7 @@ export const ServiceDetailPage: React.FC = () => {
             <Button
               variant="saffron"
               onClick={handleCreateApplicationAndToken}
-              disabled={applySubmitting || !!duplicateBookingForSelectedDate || !!serverSlotData?.isClosedHoliday || !!serverSlotData?.isBookingStopped}
+              disabled={applySubmitting || !selectedTimeSlot || !!duplicateBookingForSelectedDate || !!serverSlotData?.isClosedHoliday || !!serverSlotData?.isBookingStopped}
               icon={<Ticket size={18} />}
             >
               {applySubmitting
@@ -851,7 +860,9 @@ export const ServiceDetailPage: React.FC = () => {
                 ? 'Booking Stopped for Today'
                 : duplicateBookingForSelectedDate
                 ? 'Already Booked For This Date'
-                : `Confirm & Book Slot (${selectedTimeSlot})`}
+                : selectedTimeSlot
+                ? `Confirm & Book Slot (${selectedTimeSlot})`
+                : 'Select a Time Slot'}
             </Button>
           </div>
         </div>

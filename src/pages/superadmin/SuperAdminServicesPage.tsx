@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../config/supabase';
+import { getAuthToken } from '../../services/auth/authToken';
 import { Card } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
@@ -226,19 +227,22 @@ export const SuperAdminServicesPage: React.FC = () => {
     try {
       if (isInitial) setLoading(true);
       const res = await fetch('/api/services?include_inactive=true');
-      const responseData = await res.json();
-
-      if (responseData.success && Array.isArray(responseData.data) && responseData.data.length > 0) {
-        setServices(responseData.data);
-      } else {
-        const { data, error } = await supabase
-          .from('services')
-          .select('*, document_requirements(*)')
-          .order('created_at', { ascending: false });
-
-        if (error) throw error;
-        setServices(data || []);
+      const contentType = res.headers.get('content-type');
+      if (res.ok && contentType && contentType.includes('application/json')) {
+        const responseData = await res.json();
+        if (responseData.success && Array.isArray(responseData.data) && responseData.data.length > 0) {
+          setServices(responseData.data);
+          return;
+        }
       }
+
+      const { data, error } = await supabase
+        .from('services')
+        .select('*, document_requirements(*)')
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      setServices(data || []);
     } catch (err: any) {
       console.error('Error fetching global services:', err);
     } finally {
@@ -249,8 +253,7 @@ export const SuperAdminServicesPage: React.FC = () => {
   const handleToggleServiceStatus = async (srv: ServiceItem) => {
     const newStatus = !srv.is_active;
     try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const token = sessionData?.session?.access_token || '';
+      const token = await getAuthToken();
 
       // Optimistic update
       setServices((prev) =>
@@ -284,8 +287,7 @@ export const SuperAdminServicesPage: React.FC = () => {
   const handleConfirmDeleteService = async () => {
     if (!serviceToDelete) return;
     try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const token = sessionData?.session?.access_token || '';
+      const token = await getAuthToken();
 
       const res = await fetch(`/api/super-admin/services/${serviceToDelete.id}`, {
         method: 'DELETE',
@@ -411,8 +413,10 @@ export const SuperAdminServicesPage: React.FC = () => {
 
     try {
       setSubmitting(true);
-      const { data: sessionData } = await supabase.auth.getSession();
-      const token = sessionData?.session?.access_token || '';
+      const token = await getAuthToken();
+      if (!token) {
+        throw new Error('Authentication token required. Please switch to Super Admin persona or sign in.');
+      }
 
       const isEdit = modalMode === 'EDIT';
       const endpoint = isEdit ? `/api/super-admin/services/${editingService?.id}` : '/api/super-admin/services';

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../config/supabase';
+import { getAuthToken } from '../../services/auth/authToken';
 import { Table } from '../../components/ui/Table';
 import type { Column } from '../../components/ui/Table';
 import { Badge } from '../../components/ui/Badge';
@@ -56,18 +57,20 @@ export const SuperAdminAdminsPage: React.FC = () => {
 
   const fetchAdmins = async () => {
     try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const token = sessionData?.session?.access_token || '';
+      const token = await getAuthToken();
 
       const res = await fetch('/api/super-admin/admins', {
         headers: {
           Authorization: `Bearer ${token}`,
         },
       });
-      const data = await res.json();
-      if (data.success && Array.isArray(data.data) && data.data.length > 0) {
-        setAdmins(data.data);
-        return;
+      const contentType = res.headers.get('content-type');
+      if (res.ok && contentType && contentType.includes('application/json')) {
+        const data = await res.json();
+        if (data.success && Array.isArray(data.data) && data.data.length > 0) {
+          setAdmins(data.data);
+          return;
+        }
       }
 
       // Direct Supabase fallback if API returns empty array or fails
@@ -133,8 +136,12 @@ export const SuperAdminAdminsPage: React.FC = () => {
     setSubmitting(true);
 
     try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const token = sessionData?.session?.access_token || '';
+      const token = await getAuthToken();
+      if (!token) {
+        setError('Authentication token required. Please switch to Super Admin persona or sign in.');
+        setSubmitting(false);
+        return;
+      }
 
       const res = await fetch('/api/super-admin/create-admin', {
         method: 'POST',
@@ -193,8 +200,7 @@ export const SuperAdminAdminsPage: React.FC = () => {
     setSubmitting(true);
 
     try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const token = sessionData?.session?.access_token || '';
+      const token = await getAuthToken();
 
       const res = await fetch(`/api/super-admin/admins/${editingAdmin.id}`, {
         method: 'PATCH',
@@ -233,8 +239,7 @@ export const SuperAdminAdminsPage: React.FC = () => {
     }
 
     try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const token = sessionData?.session?.access_token || '';
+      const token = await getAuthToken();
 
       const res = await fetch(`/api/super-admin/admins/${adminId}`, {
         method: 'DELETE',

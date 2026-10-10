@@ -2,6 +2,7 @@ import { Response } from 'express';
 import { AuthenticatedRequest, ApiResponse } from '../types';
 import { supabaseAdmin } from '../config/supabase';
 import { triggerIdpCreatedWebhook } from '../services/n8nService';
+import { ensureUserProfileExists } from '../utils/profileHelper';
 
 export const createApplication = async (
   req: AuthenticatedRequest,
@@ -18,6 +19,9 @@ export const createApplication = async (
       });
       return;
     }
+
+    // Ensure user profile exists in database before creating application
+    await ensureUserProfileExists(userId, req.user);
 
     // Resolve valid service UUID if needed
     let resolvedServiceId = serviceId;

@@ -826,11 +826,18 @@ export const EmployeeDashboardPage: React.FC = () => {
                     <Button
                       variant="secondary"
                       size="sm"
+                      disabled={isBookingWindowClosedForToday}
                       onClick={() => handleOpenStopBooking(srv)}
                       icon={<Ban size={14} />}
-                      style={{ width: '100%', fontWeight: 700, borderColor: '#EF4444', color: '#B91C1C' }}
+                      style={{
+                        width: '100%',
+                        fontWeight: 700,
+                        borderColor: isBookingWindowClosedForToday ? 'var(--color-neutral-300)' : '#EF4444',
+                        color: isBookingWindowClosedForToday ? 'var(--color-neutral-400)' : '#B91C1C',
+                        cursor: isBookingWindowClosedForToday ? 'not-allowed' : 'pointer',
+                      }}
                     >
-                      Stop Booking for Today
+                      {isBookingWindowClosedForToday ? 'Booking Window Concluded' : 'Stop Booking for Today'}
                     </Button>
                   )}
                 </div>

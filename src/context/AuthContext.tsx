@@ -4,6 +4,7 @@ import { MOCK_USERS } from '../services/mockData';
 import { authService } from '../services/auth/authService';
 import type { UserProfile } from '../services/auth/authTypes';
 import { supabase } from '../config/supabase';
+import { DEMO_CREDENTIALS } from '../services/auth/authToken';
 
 interface AuthContextType {
   currentUser: User | null;
@@ -24,8 +25,8 @@ interface AuthContextType {
     dob: string;
     uiMode: UIMode;
   }) => void;
-  switchUserRole: (role: UserRole) => void;
-  loginAs: (userKey: keyof typeof MOCK_USERS) => void;
+  switchUserRole: (role: UserRole) => void | Promise<void>;
+  loginAs: (userKey: keyof typeof MOCK_USERS) => void | Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -109,6 +110,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           if (data?.session?.user) {
             await handleSession(data.session, 'GET_SESSION');
           } else {
+            // Restore Supabase Auth session if user persona is saved in localStorage
+            const saved = localStorage.getItem('nagrikq_active_user');
+            if (saved) {
+              try {
+                const parsed = JSON.parse(saved);
+                if (parsed.role && DEMO_CREDENTIALS[parsed.role as UserRole]) {
+                  const creds = DEMO_CREDENTIALS[parsed.role as UserRole];
+                  const { data: loginData } = await supabase.auth.signInWithPassword({
+                    email: creds.email,
+                    password: creds.pass,
+                  });
+                  if (loginData?.session) {
+                    await handleSession(loginData.session, 'RESTORED_SESSION');
+                    return;
+                  }
+                }
+              } catch {
+                // fall through
+              }
+            }
             setIsLoading(false);
           }
         }
@@ -257,7 +278,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     authService.saveUpdatedProfile(profile);
   };
 
-  const switchUserRole = (role: UserRole) => {
+  const switchUserRole = async (role: UserRole) => {
     let mockKey: keyof typeof MOCK_USERS = 'citizen';
     if (role === 'employee') mockKey = 'employee';
     else if (role === 'admin') mockKey = 'admin';
@@ -281,9 +302,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       preferredUIMode: userObj.preferredUIMode,
       onboardingCompleted: true,
     });
+
+    const creds = DEMO_CREDENTIALS[role];
+    if (creds) {
+      try {
+        await supabase.auth.signInWithPassword({
+          email: creds.email,
+          password: creds.pass,
+        });
+      } catch (err) {
+        console.warn('[AUTH] switchUserRole signInWithPassword notice:', err);
+      }
+    }
   };
 
-  const loginAs = (userKey: keyof typeof MOCK_USERS) => {
+  const loginAs = async (userKey: keyof typeof MOCK_USERS) => {
     if (MOCK_USERS[userKey]) {
       const targetUser = MOCK_USERS[userKey];
       const userObj: User = {
@@ -303,6 +336,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         preferredUIMode: userObj.preferredUIMode,
         onboardingCompleted: true,
       });
+
+      const creds = DEMO_CREDENTIALS[targetUser.role];
+      if (creds) {
+        try {
+          await supabase.auth.signInWithPassword({
+            email: creds.email,
+            password: creds.pass,
+          });
+        } catch (err) {
+          console.warn('[AUTH] loginAs signInWithPassword notice:', err);
+        }
+      }
     }
   };
 

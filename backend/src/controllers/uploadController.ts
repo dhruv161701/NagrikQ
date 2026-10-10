@@ -2,6 +2,8 @@ import { Response } from 'express';
 import crypto from 'crypto';
 import { AuthenticatedRequest } from '../types';
 import { supabaseAdmin } from '../config/supabase';
+import { ensureUserProfileExists } from '../utils/profileHelper';
+import { calculateDocumentValidity } from '../services/documentVerificationService';
 
 const CLOUDINARY_CLOUD_NAME = process.env.CLOUDINARY_CLOUD_NAME || 'dx3tt1c5v';
 const CLOUDINARY_API_KEY = process.env.CLOUDINARY_API_KEY || '452682556522892';
@@ -203,7 +205,7 @@ export const verifyAndUploadDocument = async (
         success: false,
         verificationStatus: result.verificationStatus,
         error: {
-          code: `VERIFICATION_${result.verificationStatus}`,
+          code: result.errorCode || `VERIFICATION_${result.verificationStatus}`,
           message: result.failureReason || 'Document verification failed. Asset was not stored.',
         },
         extractedInfo: result.extractedInfo,
@@ -239,18 +241,47 @@ export const getUserDocuments = async (req: AuthenticatedRequest, res: Response)
       res.status(401).json({ success: false, error: { code: 'UNAUTHORIZED', message: 'Authentication required' } });
       return;
     }
-    const { data: docs, error } = await supabaseAdmin
+
+    // Sort by uploaded_at descending
+    let { data: docs, error } = await supabaseAdmin
       .from('documents')
       .select('*')
       .eq('user_id', userId)
-      .order('created_at', { ascending: false });
+      .order('uploaded_at', { ascending: false });
+
+    // Fallback if uploaded_at order fails
+    if (error) {
+      const fallback = await supabaseAdmin
+        .from('documents')
+        .select('*')
+        .eq('user_id', userId);
+      docs = fallback.data;
+      error = fallback.error;
+    }
 
     if (error) {
       res.status(500).json({ success: false, error: { code: 'DB_ERROR', message: error.message } });
       return;
     }
 
-    res.json({ success: true, data: docs || [] });
+    const enrichedDocs = (docs || []).map((doc: any) => {
+      const validity = calculateDocumentValidity(
+        doc.requirement_name,
+        doc.issue_date,
+        doc.expiry_date,
+        doc.extracted_metadata
+      );
+      return {
+        ...doc,
+        validity_period: validity.validityPeriod,
+        remaining_validity: validity.remainingValidity,
+        is_expired: validity.isExpired,
+        is_expiring_soon: validity.isExpiringSoon,
+        days_remaining: validity.daysRemaining,
+      };
+    });
+
+    res.json({ success: true, data: enrichedDocs });
   } catch (err: any) {
     res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: err.message } });
   }
@@ -263,7 +294,56 @@ export const saveUserDocument = async (req: AuthenticatedRequest, res: Response)
       res.status(401).json({ success: false, error: { code: 'UNAUTHORIZED', message: 'Authentication required' } });
       return;
     }
-    const { requirementName, fileName, storagePath, verificationStatus, notes } = req.body;
+    const {
+      requirementName,
+      fileName,
+      storagePath,
+      verificationStatus,
+      notes,
+      issueDate,
+      expiryDate,
+      extractedMetadata,
+      fileHash,
+      fileSize,
+      mimeType,
+      documentRequirementId,
+      applicationId,
+    } = req.body;
+    await ensureUserProfileExists(userId, req.user);
+
+    // Prevent duplicate entries if document with this storage_path already saved
+    if (storagePath) {
+      const { data: existing } = await supabaseAdmin
+        .from('documents')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('storage_path', storagePath)
+        .maybeSingle();
+
+      if (existing) {
+        // If existing record was missing metadata or dates, update it!
+        const updates: any = {};
+        if (issueDate && !existing.issue_date) updates.issue_date = issueDate;
+        if (expiryDate && !existing.expiry_date) updates.expiry_date = expiryDate;
+        if (extractedMetadata && (!existing.extracted_metadata || Object.keys(existing.extracted_metadata).length === 0)) {
+          updates.extracted_metadata = extractedMetadata;
+        }
+        if (fileHash && !existing.file_hash) updates.file_hash = fileHash;
+        if (Object.keys(updates).length > 0) {
+          const { data: updated } = await supabaseAdmin
+            .from('documents')
+            .update(updates)
+            .eq('id', existing.id)
+            .select('*')
+            .single();
+          res.status(200).json({ success: true, data: updated || existing });
+          return;
+        }
+        res.status(200).json({ success: true, data: existing });
+        return;
+      }
+    }
+
     const { data: doc, error } = await supabaseAdmin
       .from('documents')
       .insert({
@@ -273,6 +353,14 @@ export const saveUserDocument = async (req: AuthenticatedRequest, res: Response)
         storage_path: storagePath || '#',
         verification_status: verificationStatus || 'PENDING',
         notes: notes || null,
+        issue_date: issueDate || null,
+        expiry_date: expiryDate || null,
+        extracted_metadata: extractedMetadata || null,
+        file_hash: fileHash || null,
+        file_size: fileSize || null,
+        mime_type: mimeType || null,
+        document_requirement_id: documentRequirementId || null,
+        application_id: applicationId || null,
       })
       .select('*')
       .single();

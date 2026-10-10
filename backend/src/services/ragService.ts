@@ -55,12 +55,25 @@ export const searchSimilarChunks = async (
 
   // Order by similarity (distance) - use cosine distance
   // pgvector IVFFlat index with cosine distance
-  const { data, error } = await query;
+  const { data: rawData, error } = await query;
 
   if (error) {
     console.error('[ERR] Vector search error:', error);
     return { chunks: [], hasResults: false };
   }
+
+  if (!rawData || rawData.length === 0) {
+    return { chunks: [], hasResults: false };
+  }
+
+  // Filter out any unpublished or inactive services
+  const { data: activeServices } = await supabaseAdmin
+    .from('services')
+    .select('id')
+    .eq('is_active', true);
+
+  const activeServiceIds = new Set((activeServices || []).map((s: any) => s.id));
+  const data = rawData.filter((row: any) => activeServiceIds.has(row.service_id));
 
   if (!data || data.length === 0) {
     return { chunks: [], hasResults: false };

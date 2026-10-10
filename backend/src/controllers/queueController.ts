@@ -4,6 +4,7 @@ import { supabaseAdmin } from '../config/supabase';
 import { bookingMutex } from '../utils/mutex';
 import { getOfficeLocalTime, isSlotInPastOrTooSoon } from '../utils/timezone';
 import { notificationService } from '../services/notificationService';
+import { ensureUserProfileExists } from '../utils/profileHelper';
 
 export const generateToken = async (
   req: AuthenticatedRequest,
@@ -30,6 +31,9 @@ export const generateToken = async (
       });
       return;
     }
+
+    // Ensure user profile exists in database before generating token
+    await ensureUserProfileExists(userId, req.user);
 
     // Resolve valid service UUID if needed
     let resolvedServiceId = serviceId;

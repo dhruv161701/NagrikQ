@@ -106,6 +106,7 @@ export async function triggerIdpCreatedWebhook(payload: IdpCreatedEventPayload):
             'x-webhook-secret': WEBHOOK_SECRET,
           },
           body: JSON.stringify(webhookPayload),
+          signal: AbortSignal.timeout(3000),
         });
 
         if (response.ok) {

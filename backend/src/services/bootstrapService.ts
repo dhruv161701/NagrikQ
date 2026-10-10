@@ -108,79 +108,34 @@ export const ensureKnowledgeBaseSeeded = async (): Promise<void> => {
       .from('knowledge_chunks')
       .select('*', { count: 'exact', head: true });
 
-    if (error) {
-      console.warn('[BOOTSTRAP] Could not check knowledge_chunks count:', error.message);
+    const { syncServiceKnowledgeChunks } = await import('./embeddingService');
+
+    const { data: services, error: srvErr } = await supabaseAdmin.from('services').select('id, name');
+    if (srvErr || !services || services.length === 0) {
+      console.log('[BOOTSTRAP] No services found to index in RAG knowledge base.');
       return;
     }
 
-    if (count && count > 0) {
-      console.log(`[BOOTSTRAP] RAG Knowledge Base already indexed (${count} chunks).`);
-      return;
+    const { data: indexedChunks, error: chunkErr } = await supabaseAdmin
+      .from('knowledge_chunks')
+      .select('service_id');
+
+    if (chunkErr) {
+      console.warn('[BOOTSTRAP] Error querying knowledge_chunks:', chunkErr.message);
     }
 
-    console.log('[BOOTSTRAP] Initializing RAG Knowledge Base indexing...');
-    const { data: services } = await supabaseAdmin.from('services').select('*');
-    if (!services || services.length === 0) return;
+    const indexedServiceIds = new Set((indexedChunks || []).map((c) => c.service_id));
+    const unindexedServices = services.filter((s) => !indexedServiceIds.has(s.id));
 
-    const { data: docs } = await supabaseAdmin.from('document_requirements').select('*');
-    const docsByService = new Map<string, any[]>();
-    (docs || []).forEach((d) => {
-      const list = docsByService.get(d.service_id) || [];
-      list.push(d);
-      docsByService.set(d.service_id, list);
-    });
-
-    const { generateEmbedding } = await import('./geminiService');
-
-    for (const srv of services) {
-      const srvDocs = docsByService.get(srv.id) || [];
-      const docListStr = srvDocs.length > 0
-        ? srvDocs.map((d) => `• ${d.name} (${d.is_required ? 'Required' : 'Optional'}${d.description ? ': ' + d.description : ''})`).join('\n')
-        : 'Standard identification documents required.';
-
-      const chunksToInsert = [
-        {
-          service_id: srv.id,
-          service_name: srv.name,
-          state: 'Gujarat',
-          department: srv.category || 'Public Administration',
-          topic: 'required_documents',
-          content: `To apply for ${srv.name} (${srv.category}), the following documents are needed:\n${docListStr}`,
-          metadata: { category: srv.category, service_id: srv.id, topic: 'required_documents' },
-        },
-        {
-          service_id: srv.id,
-          service_name: srv.name,
-          state: 'Gujarat',
-          department: srv.category || 'Public Administration',
-          topic: 'process_and_timeline',
-          content: `For ${srv.name}: The official processing time is approximately ${srv.processing_time_days || 7} working days. The government fee is ₹${srv.fee_amount || 0}. Description: ${srv.description || srv.name}. Citizens can book a virtual queue token online on NagrikQ to avoid office queues.`,
-          metadata: { category: srv.category, service_id: srv.id, topic: 'process_and_timeline' },
-        },
-      ];
-
-      for (const ch of chunksToInsert) {
-        try {
-          const emb = await generateEmbedding(ch.content);
-          if (emb && emb.length > 0) {
-            await supabaseAdmin.from('knowledge_chunks').insert({
-              service_id: ch.service_id,
-              service_name: ch.service_name,
-              state: ch.state,
-              department: ch.department,
-              topic: ch.topic,
-              content: ch.content,
-              embedding: emb as any,
-              metadata: ch.metadata,
-            });
-          }
-        } catch (embErr: any) {
-          console.warn(`[BOOTSTRAP] Failed embedding for ${srv.name}:`, embErr?.message);
-        }
+    if (unindexedServices.length > 0) {
+      console.log(`[BOOTSTRAP] Found ${unindexedServices.length} service(s) missing knowledge chunks. Initializing embeddings...`);
+      for (const srv of unindexedServices) {
+        await syncServiceKnowledgeChunks(srv.id);
       }
+      console.log('✅ [BOOTSTRAP] RAG Knowledge Base successfully populated with service embeddings.');
+    } else {
+      console.log(`[BOOTSTRAP] RAG Knowledge Base is up to date (${services.length} services indexed).`);
     }
-
-    console.log('✅ [BOOTSTRAP] RAG Knowledge Base successfully populated with service embeddings.');
   } catch (err: any) {
     console.error('[BOOTSTRAP] Error seeding knowledge base:', err.message);
   }

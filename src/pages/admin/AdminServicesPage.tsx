@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../config/supabase';
+import { getAuthToken } from '../../services/auth/authToken';
 import { Button } from '../../components/ui/Button';
 import { Badge } from '../../components/ui/Badge';
 import { Modal } from '../../components/ui/Modal';
@@ -124,9 +125,12 @@ export const AdminServicesPage: React.FC = () => {
     if (isInitial) setLoading(true);
     try {
       const res = await fetch('/api/services');
-      const data = await res.json();
-      if (data.success && Array.isArray(data.data)) {
-        setServices(data.data.filter((s: any) => s.is_active !== false));
+      const contentType = res.headers.get('content-type');
+      if (res.ok && contentType && contentType.includes('application/json')) {
+        const data = await res.json();
+        if (data.success && Array.isArray(data.data)) {
+          setServices(data.data.filter((s: any) => s.is_active !== false));
+        }
       }
     } catch (err) {
       console.warn('Failed to fetch services:', err);
@@ -221,8 +225,7 @@ export const AdminServicesPage: React.FC = () => {
     }
 
     try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const token = sessionData?.session?.access_token || '';
+      const token = await getAuthToken();
 
       const res = await fetch(`/api/services/${configService.id}/slots`, {
         method: 'PATCH',
@@ -287,8 +290,7 @@ export const AdminServicesPage: React.FC = () => {
     }
 
     try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const token = sessionData?.session?.access_token || '';
+      const token = await getAuthToken();
 
       const res = await fetch(`/api/services/${srv.id}/slots`, {
         method: 'PATCH',
@@ -331,8 +333,7 @@ export const AdminServicesPage: React.FC = () => {
 
     try {
       setCrSubmitting(true);
-      const { data: sessionData } = await supabase.auth.getSession();
-      const token = sessionData?.session?.access_token || '';
+      const token = await getAuthToken();
 
       const targetSrv = services.find((s) => s.id === selectedServiceId);
       const currentDocNames = targetSrv?.document_requirements?.map((d) => d.name) || [];

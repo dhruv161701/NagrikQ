@@ -12,6 +12,7 @@ import type {
 } from '../types';
 import { mockRepository } from '../services/repositories';
 import { supabase } from '../config/supabase';
+import { getAuthToken } from '../services/auth/authToken';
 import { useAuth } from './AuthContext';
 import {
   DEFAULT_COUNTER_SEQUENCES,
@@ -233,7 +234,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const isSuperAdmin = currentUser?.role === 'superadmin';
       const endpoint = isSuperAdmin ? '/api/services?include_inactive=true' : '/api/services';
       const res = await fetch(endpoint);
-      if (res.ok) {
+      const contentType = res.headers.get('content-type');
+      if (res.ok && contentType && contentType.includes('application/json')) {
         const json = await res.json();
         if (json.success && Array.isArray(json.data) && json.data.length > 0) {
           const mapped = json.data.map(mapDBServiceToService);
@@ -259,8 +261,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // 2. Fetch Applications (Requires authenticated session)
   const fetchApplicationsFromAPI = useCallback(async () => {
     try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const token = sessionData?.session?.access_token;
+      const token = await getAuthToken();
       if (!token) {
         // Unauthenticated visitor: do not fire protected API endpoint
         return;
@@ -270,7 +271,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         headers: { Authorization: `Bearer ${token}` },
       });
 
-      if (res.ok) {
+      const contentType = res.headers.get('content-type');
+      if (res.ok && contentType && contentType.includes('application/json')) {
         const json = await res.json();
         if (json.success && Array.isArray(json.data) && json.data.length > 0) {
           const mapped = json.data.map(mapDBAppToApplication);
@@ -298,8 +300,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // 3. Fetch Queue Tokens (Protected - officer queue requires employee/admin/superadmin role, citizen uses /api/queue/my-tokens)
   const fetchQueueTokensFromAPI = useCallback(async (forcedRole?: string) => {
     try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const token = sessionData?.session?.access_token;
+      const token = await getAuthToken();
       if (!token) {
         setIsQueueTokensLoaded(true);
         return;
@@ -314,7 +315,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const res = await fetch('/api/queue/my-tokens', {
             headers: { Authorization: `Bearer ${token}` },
           });
-          if (res.ok) {
+          const ct = res.headers.get('content-type');
+          if (res.ok && ct && ct.includes('application/json')) {
             const json = await res.json();
             if (json.success && Array.isArray(json.data)) {
               if (json.data.length > 0) {
@@ -348,7 +350,6 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }
         } else if (error) {
           console.warn('[DataContext] Direct queue_tokens query warning:', error);
-          // Never wipe setDbQueueTokens([]) on query error!
         }
         setIsQueueTokensLoaded(true);
         return;
@@ -358,7 +359,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         headers: { Authorization: `Bearer ${token}` },
       });
 
-      if (res.ok) {
+      const contentType = res.headers.get('content-type');
+      if (res.ok && contentType && contentType.includes('application/json')) {
         const json = await res.json();
         if (json.success && Array.isArray(json.data)) {
           const mapped = json.data.map(mapDBTokenToQueueToken);
@@ -386,8 +388,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // 4. Fetch Change Requests (Protected - requires admin or superadmin role)
   const fetchChangeRequestsFromAPI = useCallback(async (forcedRole?: string) => {
     try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const token = sessionData?.session?.access_token;
+      const token = await getAuthToken();
       if (!token) {
         // Unauthenticated visitor: do not fire protected API endpoint
         return;
@@ -402,7 +403,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         headers: { Authorization: `Bearer ${token}` },
       });
 
-      if (res.ok) {
+      const contentType = res.headers.get('content-type');
+      if (res.ok && contentType && contentType.includes('application/json')) {
         const json = await res.json();
         if (json.success && Array.isArray(json.data) && json.data.length > 0) {
           setDbChangeRequests(json.data.map(mapDBChangeRequestToChangeRequest));
@@ -584,8 +586,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     // 2. Sync to backend API
     try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const token = sessionData?.session?.access_token || '';
+      const token = await getAuthToken();
 
       const res = await fetch('/api/applications', {
         method: 'POST',
@@ -638,8 +639,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     // 2. Sync to backend API
     try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const token = sessionData?.session?.access_token || '';
+      const token = await getAuthToken();
 
       const officeId = typeof options === 'string' ? options : options?.officeId;
       const timeSlot = typeof options === 'object' ? options?.timeSlot : undefined;
@@ -725,8 +725,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     );
 
     try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const token = sessionData?.session?.access_token || '';
+      const token = await getAuthToken();
 
       await fetch(`/api/queue/tokens/${tokenId}/advance-counter`, {
         method: 'POST',
@@ -752,8 +751,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const token = sessionData?.session?.access_token || '';
+      const token = await getAuthToken();
 
       const res = await fetch(`/api/queue/tokens/${tokenId}/rebook`, {
         method: 'POST',
@@ -789,8 +787,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     mockRepository.updateEmployeeBreakSchedule(employeeId, breakStartTime, breakEndTime);
 
     try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const token = sessionData?.session?.access_token || '';
+      const token = await getAuthToken();
 
       await fetch(`/api/admin/employees/${employeeId}`, {
         method: 'PATCH',
@@ -816,8 +813,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const token = sessionData?.session?.access_token || '';
+      const token = await getAuthToken();
 
       const res = await fetch(`/api/queue/tokens/${tokenId}/cancel`, {
         method: 'PATCH',
@@ -861,8 +857,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const targetCounter = counterNumber || 'C-04';
 
     try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const token = sessionData?.session?.access_token || '';
+      const token = await getAuthToken();
 
       const res = await fetch('/api/queue/next', {
         method: 'POST',
@@ -914,8 +909,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     );
 
     try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const token = sessionData?.session?.access_token || '';
+      const token = await getAuthToken();
 
       await fetch(`/api/queue/tokens/${tokenId}/status`, {
         method: 'PATCH',
@@ -938,8 +932,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     );
 
     try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const token = sessionData?.session?.access_token || '';
+      const token = await getAuthToken();
 
       const res = await fetch(`/api/queue/tokens/${tokenId}/next-table`, {
         method: 'POST',
@@ -986,8 +979,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     );
 
     try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const token = sessionData?.session?.access_token || '';
+      const token = await getAuthToken();
 
       await fetch(`/api/applications/${applicationId}/status`, {
         method: 'PATCH',
@@ -1023,8 +1015,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     );
 
     try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const token = sessionData?.session?.access_token || '';
+      const token = await getAuthToken();
 
       await fetch(`/api/applications/documents/${docId}/status`, {
         method: 'PATCH',

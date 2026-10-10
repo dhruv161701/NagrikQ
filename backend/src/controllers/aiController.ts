@@ -33,7 +33,7 @@ export const askRagQuestion = async (req: Request, res: Response): Promise<void>
 
     // 3. Search Supabase pgvector for similar knowledge chunks
     const retrievalConfig: any = {
-      similarityThreshold: 0.3,
+      similarityThreshold: 0.25,
       topK: 5,
     };
 
@@ -41,9 +41,24 @@ export const askRagQuestion = async (req: Request, res: Response): Promise<void>
       retrievalConfig.serviceIdFilter = service_id;
     }
 
-    const { chunks, hasResults } = await retrieveRelevantChunks(question.trim(), retrievalConfig);
+    let { chunks, hasResults } = await retrieveRelevantChunks(question.trim(), retrievalConfig);
 
-    // 4. If no sufficiently relevant information, return safe response
+    // Self-healing: if no results found, check if knowledge base is empty or out-of-sync with active services
+    if (!hasResults || chunks.length === 0) {
+      const { count } = await supabaseAdmin.from('knowledge_chunks').select('*', { count: 'exact', head: true });
+      if (!count || count === 0) {
+        console.log('[RAG] Knowledge base is empty. Running on-demand synchronization...');
+        const { syncServiceKnowledgeChunks } = await import('../services/embeddingService');
+        await syncServiceKnowledgeChunks();
+
+        // Retry retrieval after on-demand sync
+        const retryResult = await retrieveRelevantChunks(question.trim(), retrievalConfig);
+        chunks = retryResult.chunks;
+        hasResults = retryResult.hasResults;
+      }
+    }
+
+    // 4. If no sufficiently relevant information after check, return safe response
     if (!hasResults || chunks.length === 0) {
       res.json({
         success: true,

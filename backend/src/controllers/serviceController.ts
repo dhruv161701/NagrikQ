@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { supabaseAdmin } from '../config/supabase';
 import { ApiResponse } from '../types';
+import { syncServiceKnowledgeChunks } from '../services/embeddingService';
 
 export const getServices = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -313,6 +314,11 @@ export const updateServiceSlots = async (req: Request, res: Response): Promise<v
         console.warn('[SCOPED_SLOT_CONFIG_NOTE]', scopedErr);
       }
     }
+
+    // Synchronize RAG embeddings with updated slot timings
+    syncServiceKnowledgeChunks(id).catch((syncErr) => {
+      console.warn('[RAG_SYNC_SLOTS_WARN] Failed updating embeddings for service slots:', syncErr?.message);
+    });
 
     res.json({
       success: true,
@@ -645,7 +651,9 @@ export const getAvailableSlotsForService = async (req: Request, res: Response): 
 
     const slotsList: Array<{
       slot: string;
+      timeSlot: string;
       slotCapacity: number;
+      capacity: number;
       bookedCount: number;
       remaining: number;
       isAvailable: boolean;
@@ -688,7 +696,9 @@ export const getAvailableSlotsForService = async (req: Request, res: Response): 
 
       slotsList.push({
         slot: slotStr,
+        timeSlot: slotStr,
         slotCapacity: capacityPerSlot,
+        capacity: capacityPerSlot,
         bookedCount: booked,
         remaining,
         isAvailable,
@@ -713,6 +723,20 @@ export const getAvailableSlotsForService = async (req: Request, res: Response): 
     } as ApiResponse);
   } catch (err: any) {
     res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: err.message } });
+  }
+};
+
+export const syncServiceKnowledge = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const result = await syncServiceKnowledgeChunks(id || undefined);
+    res.json({
+      success: result.success,
+      data: result,
+      message: `Knowledge chunks synchronized successfully for ${result.syncedServices} service(s).`,
+    } as ApiResponse);
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: { code: 'SYNC_ERROR', message: err.message } });
   }
 };
 

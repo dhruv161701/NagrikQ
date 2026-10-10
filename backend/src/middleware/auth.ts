@@ -1,6 +1,7 @@
 import { Response, NextFunction } from 'express';
 import { AuthenticatedRequest, UserRole } from '../types';
 import { supabaseAdmin } from '../config/supabase';
+import { ensureUserProfileExists } from '../utils/profileHelper';
 
 export const authenticateToken = async (
   req: AuthenticatedRequest,
@@ -30,7 +31,7 @@ export const authenticateToken = async (
     }
 
     // Fetch user profile from database to obtain authoritative role
-    const { data: profile } = await supabaseAdmin
+    let { data: profile } = await supabaseAdmin
       .from('profiles')
       .select('*')
       .eq('id', data.user.id)
@@ -69,10 +70,19 @@ export const authenticateToken = async (
       }
     }
 
+    if (!profile) {
+      await ensureUserProfileExists(data.user.id, {
+        email: data.user.email,
+        fullName: data.user.user_metadata?.full_name || data.user.user_metadata?.name,
+        phone: data.user.phone,
+        role: resolvedRole,
+      });
+    }
+
     req.user = {
       id: data.user.id,
       email: data.user.email || '',
-      fullName: profile?.full_name || data.user.user_metadata?.full_name || 'Nagrik User',
+      fullName: profile?.full_name || data.user.user_metadata?.full_name || data.user.user_metadata?.name || 'Nagrik User',
       role: resolvedRole,
       onboardingCompleted: profile?.onboarding_completed ?? true,
     };

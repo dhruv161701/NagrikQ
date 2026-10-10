@@ -1,4 +1,5 @@
 import { generateEmbedding } from '../services/geminiService';
+import { supabaseAdmin } from '../config/supabase';
 
 interface ServiceKnowledge {
   serviceId: string;
@@ -235,5 +236,156 @@ export const ingestServiceKnowledge = async (
         console.error('[ERR] Failed to upsert knowledge chunk:', error);
       }
     }
+  }
+};
+
+/**
+ * Synchronize knowledge chunks and 768-dim embeddings for one or all services.
+ * Call whenever a service is created, updated, or re-indexed.
+ */
+export const syncServiceKnowledgeChunks = async (
+  serviceId?: string
+): Promise<{ success: boolean; syncedServices: number; totalChunks: number; error?: string }> => {
+  try {
+    console.log(`[RAG_SYNC] Starting knowledge chunk sync ${serviceId ? `for service ID: ${serviceId}` : 'for all services'}...`);
+
+    let serviceQuery = supabaseAdmin.from('services').select('*');
+    if (serviceId) {
+      serviceQuery = serviceQuery.eq('id', serviceId);
+    }
+
+    const { data: services, error: srvErr } = await serviceQuery;
+    if (srvErr || !services || services.length === 0) {
+      console.warn('[RAG_SYNC] No services found to index:', srvErr?.message);
+      return { success: false, syncedServices: 0, totalChunks: 0, error: srvErr?.message || 'No services found' };
+    }
+
+    let docQuery = supabaseAdmin.from('document_requirements').select('*');
+    if (serviceId) {
+      docQuery = docQuery.eq('service_id', serviceId);
+    }
+    const { data: docs } = await docQuery;
+
+    const docsByService = new Map<string, any[]>();
+    (docs || []).forEach((d) => {
+      const list = docsByService.get(d.service_id) || [];
+      list.push(d);
+      docsByService.set(d.service_id, list);
+    });
+
+    let totalChunks = 0;
+
+    for (const srv of services) {
+      // 1. Delete existing knowledge chunks for this service to prevent duplicates or stale data
+      await supabaseAdmin.from('knowledge_chunks').delete().eq('service_id', srv.id);
+
+      // If service is inactive or unpublished, do not create knowledge chunks
+      if (srv.is_active === false) {
+        console.log(`[RAG_SYNC] Service ${srv.name} (${srv.id}) is inactive/unpublished. Excluded from active knowledge base.`);
+        continue;
+      }
+
+      const srvDocs = docsByService.get(srv.id) || [];
+      const docListStr =
+        srvDocs.length > 0
+          ? srvDocs
+              .map(
+                (d, idx) =>
+                  `${idx + 1}. ${d.name} (${d.is_required ? 'Mandatory' : 'Optional'}${d.description ? ': ' + d.description : ''}${d.instructions ? ' - Note: ' + d.instructions : ''})`
+              )
+              .join('\n')
+          : '1. Aadhaar Card / Government Photo ID\n2. Address Proof / Ration Card';
+
+      // Determine full search name (e.g. "IC" -> "Income Certificate (IC)")
+      let fullDisplayName = srv.name || 'Government Service';
+      const descLower = (srv.description || '').toLowerCase();
+      const nameLower = (srv.name || '').toLowerCase();
+
+      if (nameLower === 'ic' || (descLower.includes('income certificate') && !nameLower.includes('income'))) {
+        fullDisplayName = `Income Certificate (${srv.name})`;
+      } else if (descLower.includes('caste certificate') && !nameLower.includes('caste')) {
+        fullDisplayName = `Caste Certificate (${srv.name})`;
+      } else if (descLower.includes('domicile certificate') && !nameLower.includes('domicile')) {
+        fullDisplayName = `Domicile Certificate (${srv.name})`;
+      }
+
+      // Generate 4 targeted knowledge chunks
+      const chunks = [
+        {
+          topic: 'required_documents',
+          content: `To apply for ${fullDisplayName} (${srv.category || 'Revenue Department'} - Code: ${srv.code || 'N/A'}), the following documents are required:\n\n${docListStr}\n\nDocument Instructions: Ensure documents are clean scanned copies in PDF, JPEG or PNG format. Originals should be produced for verification if called.`,
+          metadata: {
+            service_id: srv.id,
+            service_name: srv.name,
+            service_code: srv.code,
+            category: srv.category,
+            topic: 'required_documents',
+          },
+        },
+        {
+          topic: 'eligibility_and_overview',
+          content: `Service Overview and Eligibility for ${fullDisplayName}:\n${srv.description || `Official public service for ${fullDisplayName}`}.\nDepartment: ${srv.category || 'Revenue'}.\nState: Gujarat.\nEligibility: All eligible citizens and permanent residents of Gujarat requiring ${fullDisplayName} can apply through the NagrikQ online portal or at designated Jan Seva Kendras / Taluka offices.`,
+          metadata: {
+            service_id: srv.id,
+            service_name: srv.name,
+            service_code: srv.code,
+            category: srv.category,
+            topic: 'eligibility_and_overview',
+          },
+        },
+        {
+          topic: 'process_and_timeline',
+          content: `Processing Time, Fees and Queue Appointment for ${fullDisplayName}:\n• Official SLA Processing Time: ${srv.processing_time_days || 7} working days.\n• Government Application Fee: ₹${srv.fee_amount || 0.0}.\n• Digital Queue Management: NagrikQ provides virtual queue tokens so citizens do not have to wait in physical lines.\n• Slots & Verification: Citizens can book morning or afternoon time slots online and visit during their assigned slot.`,
+          metadata: {
+            service_id: srv.id,
+            service_name: srv.name,
+            service_code: srv.code,
+            category: srv.category,
+            topic: 'process_and_timeline',
+          },
+        },
+        {
+          topic: 'faq_and_guidelines',
+          content: `Frequently Asked Questions for ${fullDisplayName}:\n1. How do I check application status? You can track your status live under the 'My Applications' tab using your Application ID.\n2. Do I need an appointment? Booking a virtual token on NagrikQ is recommended to avoid counter queues.\n3. What if a document is rejected? You will receive a notification with the rejection reason and can re-upload the corrected document.`,
+          metadata: {
+            service_id: srv.id,
+            service_name: srv.name,
+            service_code: srv.code,
+            category: srv.category,
+            topic: 'faq_and_guidelines',
+          },
+        },
+      ];
+
+      for (const ch of chunks) {
+        try {
+          const embedding = await generateEmbedding(ch.content);
+          const { error: insErr } = await supabaseAdmin.from('knowledge_chunks').insert({
+            service_id: srv.id,
+            service_name: srv.name,
+            state: 'Gujarat',
+            department: srv.category || 'Revenue',
+            topic: ch.topic,
+            content: ch.content,
+            embedding: embedding as any,
+            metadata: ch.metadata,
+          });
+
+          if (insErr) {
+            console.error(`[RAG_SYNC] Error inserting chunk for ${srv.name}:`, insErr.message);
+          } else {
+            totalChunks++;
+          }
+        } catch (embErr: any) {
+          console.error(`[RAG_SYNC] Failed generating embedding for chunk of ${srv.name}:`, embErr?.message);
+        }
+      }
+    }
+
+    console.log(`✅ [RAG_SYNC] Successfully synced ${services.length} service(s) into ${totalChunks} knowledge chunks with embeddings.`);
+    return { success: true, syncedServices: services.length, totalChunks };
+  } catch (err: any) {
+    console.error('[RAG_SYNC] Unexpected error syncing service knowledge chunks:', err?.message || err);
+    return { success: false, syncedServices: 0, totalChunks: 0, error: err?.message };
   }
 };

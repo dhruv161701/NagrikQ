@@ -76,6 +76,7 @@ export async function verifyAndUploadDocumentWithAI(
     const errMsg = apiRes.error?.message || 'Document failed AI verification checks.';
     const status = apiRes.verificationStatus || (apiRes.data as any)?.verificationStatus || 'REJECTED';
     const err = new Error(errMsg);
+    (err as any).code = apiRes.error?.code;
     (err as any).verificationStatus = status;
     (err as any).extractedInfo = apiRes.extractedInfo || (apiRes.data as any)?.extractedInfo;
     throw err;

@@ -1,4 +1,5 @@
 import { supabase } from '../config/supabase';
+import { getAuthToken } from './auth/authToken';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
 
@@ -22,9 +23,9 @@ async function request<T = any>(endpoint: string, options: RequestInit = {}): Pr
     };
 
     // Read current Supabase session token
-    const { data } = await supabase.auth.getSession();
-    if (data?.session?.access_token) {
-      headers['Authorization'] = `Bearer ${data.session.access_token}`;
+    const token = await getAuthToken();
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
     }
 
     const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
@@ -55,6 +56,10 @@ async function request<T = any>(endpoint: string, options: RequestInit = {}): Pr
       const errJson = await response.json().catch(() => ({}));
       return {
         success: false,
+        verificationStatus: errJson.verificationStatus,
+        extractedInfo: errJson.extractedInfo,
+        fileHash: errJson.fileHash,
+        data: errJson.data,
         error: errJson.error || {
           code: `HTTP_${response.status}`,
           message: response.statusText || 'API Request failed.',
@@ -62,7 +67,17 @@ async function request<T = any>(endpoint: string, options: RequestInit = {}): Pr
       };
     }
 
-    return await response.json();
+    const contentType = response.headers.get('content-type');
+    if (contentType && contentType.includes('application/json')) {
+      return await response.json();
+    }
+    return {
+      success: false,
+      error: {
+        code: 'INVALID_RESPONSE',
+        message: 'Backend server returned non-JSON response.',
+      },
+    };
   } catch (err: any) {
     // Return clear error without breaking UI execution
     return {

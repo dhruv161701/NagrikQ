@@ -4,6 +4,7 @@ import { supabaseAdmin } from '../config/supabase';
 import { sendTelegramMessage } from '../services/telegramBotService';
 import { normalizePhoneNumber } from '../utils/phoneUtils';
 import { triggerIdpCreatedWebhook } from '../services/n8nService';
+import { syncServiceKnowledgeChunks } from '../services/embeddingService';
 
 export const reviewChangeRequest = async (
   req: AuthenticatedRequest,
@@ -45,6 +46,11 @@ export const reviewChangeRequest = async (
         name: cr.added_document_name,
         description: `Requirement added via Change Request ${cr.request_number}`,
         is_required: true,
+      });
+
+      // Synchronize RAG embeddings with updated document requirement
+      syncServiceKnowledgeChunks(cr.service_id).catch((syncErr) => {
+        console.warn('[RAG_SYNC_CR_WARN] Failed updating embeddings for approved change request:', syncErr?.message);
       });
     }
 
@@ -548,6 +554,11 @@ export const createGlobalService = async (
       details: `Super Admin created global service '${name}' (${serviceCode}) assigned to ${addToAllOffices ? 'all state offices' : (selectedDistricts?.length || 0) + ' districts'}.`,
     });
 
+    // Synchronize RAG embeddings for the newly created service
+    syncServiceKnowledgeChunks(serviceId).catch((syncErr) => {
+      console.warn('[RAG_SYNC_CREATE_WARN] Failed generating embeddings for new service:', syncErr?.message);
+    });
+
     res.status(201).json({
       success: true,
       data: {
@@ -675,6 +686,11 @@ export const updateGlobalService = async (
       details: `Super Admin updated global service '${name}' (${id}).`,
     });
 
+    // Synchronize RAG embeddings with updated service details and requirements
+    syncServiceKnowledgeChunks(id).catch((syncErr) => {
+      console.warn('[RAG_SYNC_UPDATE_WARN] Failed updating embeddings for service:', syncErr?.message);
+    });
+
     res.json({
       success: true,
       data: {
@@ -696,7 +712,8 @@ export const deleteGlobalService = async (
     const { id } = req.params;
     const superAdminId = req.user?.id;
 
-    // Delete dependent tables first
+    // Delete dependent tables first including knowledge chunks
+    await supabaseAdmin.from('knowledge_chunks').delete().eq('service_id', id);
     await supabaseAdmin.from('document_requirements').delete().eq('service_id', id);
     await supabaseAdmin.from('office_services').delete().eq('service_id', id);
     const { error } = await supabaseAdmin.from('services').delete().eq('id', id);
@@ -762,6 +779,11 @@ export const toggleGlobalServiceStatus = async (
       entity_type: 'service',
       entity_id: id,
       details: `Super Admin set service '${updatedService.name}' status to ${isActive ? 'ACTIVE' : 'INACTIVE'}.`,
+    });
+
+    // Synchronize RAG chunks (will purge if inactive or re-index if active)
+    syncServiceKnowledgeChunks(id).catch((syncErr) => {
+      console.warn('[RAG_SYNC_STATUS_WARN] Failed updating embeddings for service:', syncErr?.message);
     });
 
     res.json({

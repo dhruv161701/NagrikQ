@@ -10,6 +10,7 @@ import {
   stopBookingToday,
   resumeBookingToday,
   getAvailableSlotsForService,
+  syncServiceKnowledge,
 } from '../controllers/serviceController';
 import {
   getHolidays,
@@ -165,6 +166,8 @@ router.delete('/documents/:id', authenticateToken, deleteUserDocument);
 router.patch('/services/:id/slots', authenticateToken, requireRole('admin', 'superadmin'), updateServiceSlots);
 router.post('/services/:id/stop-booking', authenticateToken, requireRole('employee', 'admin', 'superadmin'), stopBookingToday);
 router.post('/services/:id/resume-booking', authenticateToken, requireRole('employee', 'admin', 'superadmin'), resumeBookingToday);
+router.post('/services/sync-rag', authenticateToken, requireRole('admin', 'superadmin'), syncServiceKnowledge);
+router.post('/services/:id/sync-rag', authenticateToken, requireRole('admin', 'superadmin'), syncServiceKnowledge);
 
 // ADMIN ROUTES
 router.post('/admin/employees', authenticateToken, requireRole('admin', 'superadmin'), createEmployeeUser);
