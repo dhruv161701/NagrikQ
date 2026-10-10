@@ -260,7 +260,7 @@ export const mockRepository = {
     notify();
   },
   routeToNextTable(tokenId: string, nextCounter: string) {
-    queueState = queueState.map((q) => (q.id === tokenId ? { ...q, status: 'COMPLETED' as const, nextCounter } : q));
+    queueState = queueState.map((q) => (q.id === tokenId ? { ...q, status: 'WAITING' as const, counterNumber: nextCounter, nextCounter: undefined } : q));
     notify();
   },
 

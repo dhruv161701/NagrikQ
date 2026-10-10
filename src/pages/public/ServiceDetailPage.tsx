@@ -232,6 +232,16 @@ export const ServiceDetailPage: React.FC = () => {
     );
   }
 
+  const ACTIVE_QUEUE_STATUSES = useMemo(() => ['WAITING', 'CALLED', 'IN_SERVICE', 'PROCESSING', 'TRANSFER_PENDING', 'TRANSFERRED'], []);
+
+  // Check if current citizen currently has an active queue token anywhere in the system
+  const activeQueueToken = useMemo(() => {
+    if (!currentUser) return null;
+    return queueTokens.find(
+      (q) => q.citizenId === currentUser.id && ACTIVE_QUEUE_STATUSES.includes(q.status)
+    );
+  }, [queueTokens, currentUser?.id, ACTIVE_QUEUE_STATUSES]);
+
   const duplicateBookingForSelectedDate = useMemo(() => {
     if (!currentUser || !service) return null;
     const effectiveDate = selectedSlotDate || new Date().toISOString().split('T')[0];
@@ -239,9 +249,9 @@ export const ServiceDetailPage: React.FC = () => {
       const matchUser = q.citizenId === currentUser.id;
       const matchService = q.serviceId === service.id;
       const matchDate = q.slotDate === effectiveDate || (!q.slotDate && effectiveDate === new Date().toISOString().split('T')[0]);
-      return matchUser && matchService && matchDate && q.status !== 'CANCELLED';
+      return matchUser && matchService && matchDate && ACTIVE_QUEUE_STATUSES.includes(q.status);
     });
-  }, [queueTokens, currentUser?.id, service?.id, selectedSlotDate]);
+  }, [queueTokens, currentUser?.id, service?.id, selectedSlotDate, ACTIVE_QUEUE_STATUSES]);
 
   const handleCreateApplicationAndToken = async () => {
     if (!currentUser) {
@@ -251,16 +261,25 @@ export const ServiceDetailPage: React.FC = () => {
 
     setApplyError('');
     const effectiveDate = selectedSlotDate || new Date().toISOString().split('T')[0];
-    const existing = queueTokens.find((q) => {
+
+    // Requirement 1: User cannot book while they have an active service queue anywhere in the system
+    if (activeQueueToken) {
+      setApplyError(
+        `You currently have an active service queue (Token ${activeQueueToken.tokenNumber} for ${activeQueueToken.serviceName || 'Service'}). You cannot create another booking while you have an active queue. Once your current service is completed, you can book another slot.`
+      );
+      return;
+    }
+
+    const existingActiveForService = queueTokens.find((q) => {
       const matchUser = q.citizenId === currentUser.id;
       const matchService = q.serviceId === service.id;
       const matchDate = q.slotDate === effectiveDate || (!q.slotDate && effectiveDate === new Date().toISOString().split('T')[0]);
-      return matchUser && matchService && matchDate && q.status !== 'CANCELLED';
+      return matchUser && matchService && matchDate && ACTIVE_QUEUE_STATUSES.includes(q.status);
     });
 
-    if (existing) {
+    if (existingActiveForService) {
       setApplyError(
-        `You already have a booking (Token ${existing.tokenNumber} for ${existing.timeSlot || 'Scheduled Slot'}) for ${service.name} on ${effectiveDate}. The same user cannot book the same service multiple times on the same day.`
+        `You already hold an active queue token (${existingActiveForService.tokenNumber}) for ${service.name} on ${effectiveDate}. Please complete this service turn before booking another token.`
       );
       return;
     }
@@ -284,7 +303,7 @@ export const ServiceDetailPage: React.FC = () => {
           : (DEFAULT_COUNTER_SEQUENCES as any)[service.category] ||
             DEFAULT_COUNTER_SEQUENCES.Default;
 
-      submitApplication(service.id, service.name, citizenId, citizenName, citizenPhone, mockDocSubmissions);
+      // Issue queue token (creates single authoritative application and links it atomically)
       await issueQueueToken(citizenId, citizenName, citizenPhone, service.id, service.name, {
         timeSlot: selectedTimeSlot,
         slotDate: selectedSlotDate,

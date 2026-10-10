@@ -5,6 +5,7 @@ import { bookingMutex } from '../utils/mutex';
 import { getOfficeLocalTime, isSlotInPastOrTooSoon } from '../utils/timezone';
 import { notificationService } from '../services/notificationService';
 import { ensureUserProfileExists } from '../utils/profileHelper';
+import { normalizeCounterCode } from './adminController';
 
 export const generateToken = async (
   req: AuthenticatedRequest,
@@ -65,174 +66,175 @@ export const generateToken = async (
     const { localDateStr } = getOfficeLocalTime();
     const bookingDate = slotDate || localDateStr;
 
-    // Requirement 22 & Concurrency: Protect per-slot booking creation with keyed mutex
-    const lockKey = `slot_${resolvedServiceId}_${bookingDate}_${timeSlot || 'WALKIN'}`;
+    // Requirement 1: Protect booking creation per slot AND per user with keyed mutex
+    const slotLockKey = `slot_${resolvedServiceId}_${bookingDate}_${timeSlot || 'WALKIN'}`;
+    const userLockKey = `user_queue_${userId}`;
 
-    await bookingMutex.runExclusive(lockKey, async () => {
-      // Requirement 19: Reject past date restriction
-      if (bookingDate < localDateStr) {
-        res.status(400).json({
-          success: false,
-          error: { code: 'PAST_DATE', message: 'Tokens cannot be booked for past dates.' },
-        });
-        return;
-      }
+    await bookingMutex.runExclusive(userLockKey, async () => {
+      await bookingMutex.runExclusive(slotLockKey, async () => {
+        // Requirement 19: Reject past date restriction
+        if (bookingDate < localDateStr) {
+          res.status(400).json({
+            success: false,
+            error: { code: 'PAST_DATE', message: 'Tokens cannot be booked for past dates.' },
+          });
+          return;
+        }
 
-      // Requirement 13: National & State Holiday Closure Check
-      const { isOfficeClosedOnDate } = await import('./holidayController');
-      const holidayClosure = await isOfficeClosedOnDate(bookingDate, selectedState, resolvedOfficeId);
-      if (holidayClosure.isClosed && holidayClosure.holiday) {
-        res.status(400).json({
-          success: false,
-          error: {
-            code: 'OFFICE_CLOSED_HOLIDAY',
-            message: `Government office is officially closed on ${bookingDate} for ${holidayClosure.holiday.name}. Token bookings cannot be issued on official holidays.`,
-          },
-        });
-        return;
-      }
-
-      // Fetch service configuration for slot capacity & stopped dates
-      const { data: serviceConfig } = await supabaseAdmin
-        .from('services')
-        .select('stopped_booking_dates, is_booking_stopped, start_time, end_time, slot_duration_minutes, avg_processing_time_minutes, slot_capacity')
-        .eq('id', resolvedServiceId)
-        .maybeSingle();
-
-      // Requirement 24: Stopped Booking Check for target date (both services table and service_stop_bookings table)
-      if (serviceConfig) {
-        const isStoppedInService =
-          (serviceConfig.stopped_booking_dates && serviceConfig.stopped_booking_dates.includes(bookingDate)) ||
-          (bookingDate === localDateStr && serviceConfig.is_booking_stopped);
-
-        if (isStoppedInService) {
+        // Requirement 13: National & State Holiday Closure Check
+        const { isOfficeClosedOnDate } = await import('./holidayController');
+        const holidayClosure = await isOfficeClosedOnDate(bookingDate, selectedState, resolvedOfficeId);
+        if (holidayClosure.isClosed && holidayClosure.holiday) {
           res.status(400).json({
             success: false,
             error: {
-              code: 'BOOKING_STOPPED',
-              message: `Online bookings for this service are stopped for ${bookingDate} due to heavy counter crowd. Please visit the offline counter for walk-in token issuance.`,
+              code: 'OFFICE_CLOSED_HOLIDAY',
+              message: `Government office is officially closed on ${bookingDate} for ${holidayClosure.holiday.name}. Token bookings cannot be issued on official holidays.`,
             },
           });
           return;
         }
 
-        try {
-          const { data: stopRow } = await supabaseAdmin
-            .from('service_stop_bookings')
-            .select('id')
-            .eq('service_id', resolvedServiceId)
-            .eq('stop_date', bookingDate)
-            .maybeSingle();
+        // Fetch service configuration for slot capacity & stopped dates
+        const { data: serviceConfig } = await supabaseAdmin
+          .from('services')
+          .select('stopped_booking_dates, is_booking_stopped, start_time, end_time, slot_duration_minutes, avg_processing_time_minutes, slot_capacity')
+          .eq('id', resolvedServiceId)
+          .maybeSingle();
 
-          if (stopRow) {
+        // Requirement 24: Stopped Booking Check for target date (both services table and service_stop_bookings table)
+        if (serviceConfig) {
+          const isStoppedInService =
+            (serviceConfig.stopped_booking_dates && serviceConfig.stopped_booking_dates.includes(bookingDate)) ||
+            (bookingDate === localDateStr && serviceConfig.is_booking_stopped);
+
+          if (isStoppedInService) {
             res.status(400).json({
               success: false,
               error: {
                 code: 'BOOKING_STOPPED',
-                message: `Online bookings for this service are stopped for ${bookingDate} by counter administration.`,
+                message: `Online bookings for this service are stopped for ${bookingDate} due to heavy counter crowd. Please visit the offline counter for walk-in token issuance.`,
               },
             });
             return;
           }
-        } catch {
-          // Ignore if table not created yet
+
+          try {
+            const { data: stopRow } = await supabaseAdmin
+              .from('service_stop_bookings')
+              .select('id')
+              .eq('service_id', resolvedServiceId)
+              .eq('stop_date', bookingDate)
+              .maybeSingle();
+
+            if (stopRow) {
+              res.status(400).json({
+                success: false,
+                error: {
+                  code: 'BOOKING_STOPPED',
+                  message: `Online bookings for this service are stopped for ${bookingDate} by counter administration.`,
+                },
+              });
+              return;
+            }
+          } catch {
+            // Ignore if table not created yet
+          }
         }
-      }
 
-      // Requirement 19 & 20: 30-Minute Advance Booking Rule & Past Slot Rejection
-      if (timeSlot) {
-        const slotCheck = isSlotInPastOrTooSoon(bookingDate, timeSlot, 30);
-        if (slotCheck.isPastOrTooSoon) {
-          res.status(400).json({
-            success: false,
-            error: {
-              code: 'SLOT_EXPIRED_OR_TOO_SOON',
-              message: slotCheck.reason || 'Tokens must be booked at least 30 minutes in advance of slot start time (slot_start_time >= current_time + 30 minutes).',
-            },
-          });
-          return;
+        // Requirement 19 & 20: 30-Minute Advance Booking Rule & Past Slot Rejection
+        if (timeSlot) {
+          const slotCheck = isSlotInPastOrTooSoon(bookingDate, timeSlot, 30);
+          if (slotCheck.isPastOrTooSoon) {
+            res.status(400).json({
+              success: false,
+              error: {
+                code: 'SLOT_EXPIRED_OR_TOO_SOON',
+                message: slotCheck.reason || 'Tokens must be booked at least 30 minutes in advance of slot start time (slot_start_time >= current_time + 30 minutes).',
+              },
+            });
+            return;
+          }
         }
-      }
 
-      // Requirement 22: Online Booking Capacity Limit
-      // Theoretical capacity = floor(slot duration / average processing time)
-      // Reserved offline capacity = floor(theoretical capacity / 2)
-      // Maximum online bookings = floor(theoretical capacity / 2)
-      if (timeSlot && serviceConfig) {
-        const duration = serviceConfig.slot_duration_minutes || 30;
-        const procTime = serviceConfig.avg_processing_time_minutes || 5;
-        const theoreticalCap = Math.floor(duration / procTime);
-        const onlineCap = Math.floor(theoreticalCap / 2);
-        const maxCapacity = Math.max(1, serviceConfig.slot_capacity || onlineCap);
+        // Requirement 22: Online Booking Capacity Limit
+        if (timeSlot && serviceConfig) {
+          const duration = serviceConfig.slot_duration_minutes || 30;
+          const procTime = serviceConfig.avg_processing_time_minutes || 5;
+          const theoreticalCap = Math.floor(duration / procTime);
+          const onlineCap = Math.floor(theoreticalCap / 2);
+          const maxCapacity = Math.max(1, serviceConfig.slot_capacity || onlineCap);
 
-        const { count: currentSlotBookings } = await supabaseAdmin
+          const { count: currentSlotBookings } = await supabaseAdmin
+            .from('queue_tokens')
+            .select('*', { count: 'exact', head: true })
+            .eq('service_id', resolvedServiceId)
+            .or(`slot_date.eq.${bookingDate},queue_date.eq.${bookingDate}`)
+            .eq('time_slot', timeSlot)
+            .not('status', 'in', '("CANCELLED","MISSED","SKIPPED","REJECTED","EXPIRED")');
+
+          if ((currentSlotBookings || 0) >= maxCapacity) {
+            res.status(400).json({
+              success: false,
+              error: {
+                code: 'SLOT_FULL',
+                message: `Time slot ${timeSlot} has reached maximum online capacity (${maxCapacity} bookings). Please select another slot.`,
+              },
+            });
+            return;
+          }
+        }
+
+        // Requirement 1: ACTIVE QUEUE RESTRICTION
+        // A user CANNOT book another service while they have an active service queue anywhere in the system.
+        // Active statuses: WAITING, CALLED, IN_SERVICE, PROCESSING, TRANSFER_PENDING, TRANSFERRED.
+        // Terminal/Completed statuses (COMPLETED, CANCELLED, MISSED, SKIPPED, NO_SHOW, REJECTED, EXPIRED) allow booking another service!
+        const ACTIVE_QUEUE_STATUSES = ['WAITING', 'CALLED', 'IN_SERVICE', 'PROCESSING', 'TRANSFER_PENDING', 'TRANSFERRED'];
+
+        const { data: activeQueueToken } = await supabaseAdmin
           .from('queue_tokens')
-          .select('*', { count: 'exact', head: true })
-          .eq('service_id', resolvedServiceId)
-          .or(`slot_date.eq.${bookingDate},queue_date.eq.${bookingDate}`)
-          .eq('time_slot', timeSlot)
-          .not('status', 'in', '("CANCELLED")');
-
-        if ((currentSlotBookings || 0) >= maxCapacity) {
-          res.status(400).json({
-            success: false,
-            error: {
-              code: 'SLOT_FULL',
-              message: `Time slot ${timeSlot} has reached maximum online capacity (${maxCapacity} bookings). Please select another slot.`,
-            },
-          });
-          return;
-        }
-      }
-
-      // Fix 7: Repeat-Booking Business Rule
-      // A citizen CAN book multiple slots for the same service if the earlier booking has not been completed
-      // and business rules permit.
-      // However, if the citizen has an unfinished service actively called/in-progress at the counter, prevent another booking.
-      const { data: inProgressTurn } = await supabaseAdmin
-        .from('queue_tokens')
-        .select('id, token_number, status')
-        .eq('user_id', userId)
-        .eq('service_id', resolvedServiceId)
-        .in('status', ['IN_SERVICE', 'CALLED'])
-        .limit(1)
-        .maybeSingle();
-
-      if (inProgressTurn) {
-        res.status(400).json({
-          success: false,
-          error: {
-            code: 'SERVICE_IN_PROGRESS',
-            message: `You currently have an unfinished service in progress at the counter (Token ${inProgressTurn.token_number}). Please complete this turn before booking another token.`,
-          },
-        });
-        return;
-      }
-
-      // Prevent booking the exact same time slot twice
-      if (timeSlot) {
-        const { data: duplicateSlot } = await supabaseAdmin
-          .from('queue_tokens')
-          .select('id, token_number, status')
+          .select('id, token_number, status, counter_number, service_id, services(name)')
           .eq('user_id', userId)
-          .eq('service_id', resolvedServiceId)
-          .or(`slot_date.eq.${bookingDate},queue_date.eq.${bookingDate}`)
-          .eq('time_slot', timeSlot)
-          .not('status', 'in', '("CANCELLED","COMPLETED")')
+          .in('status', ACTIVE_QUEUE_STATUSES)
           .limit(1)
           .maybeSingle();
 
-        if (duplicateSlot) {
+        if (activeQueueToken) {
+          const activeSvc = (activeQueueToken.services as any)?.name || 'Government Service';
           res.status(400).json({
             success: false,
             error: {
-              code: 'DUPLICATE_SLOT_BOOKING',
-              message: `You already hold an active booking (Token ${duplicateSlot.token_number}) for this exact time slot (${timeSlot}).`,
+              code: 'ACTIVE_QUEUE_EXISTS',
+              message: `You currently have an active service queue (Token ${activeQueueToken.token_number} for ${activeSvc} at ${activeQueueToken.counter_number || 'Counter'} - Status: ${activeQueueToken.status}). You cannot book another service until your current service queue is completed.`,
             },
           });
           return;
         }
-      }
+
+        // Prevent booking the exact same time slot twice if active
+        if (timeSlot) {
+          const { data: duplicateSlot } = await supabaseAdmin
+            .from('queue_tokens')
+            .select('id, token_number, status')
+            .eq('user_id', userId)
+            .eq('service_id', resolvedServiceId)
+            .or(`slot_date.eq.${bookingDate},queue_date.eq.${bookingDate}`)
+            .eq('time_slot', timeSlot)
+            .in('status', ACTIVE_QUEUE_STATUSES)
+            .limit(1)
+            .maybeSingle();
+
+          if (duplicateSlot) {
+            res.status(400).json({
+              success: false,
+              error: {
+                code: 'DUPLICATE_SLOT_BOOKING',
+                message: `You already hold an active booking (Token ${duplicateSlot.token_number}) for this exact time slot (${timeSlot}).`,
+              },
+            });
+            return;
+          }
+        }
 
       const { count: waitingCount } = await supabaseAdmin
         .from('queue_tokens')
@@ -301,12 +303,24 @@ export const generateToken = async (
       }
     }
 
+    // Resolve initial counter from configured service counter path (Requirement 2 Step 1)
+    let initialCounter = 'C-01';
+    if (Array.isArray(req.body.counterPath) && req.body.counterPath.length > 0) {
+      const firstStep = String(req.body.counterPath[0]);
+      const match = firstStep.match(/C-?0*(\d+)/i) || firstStep.match(/Counter\s*0*(\d+)/i);
+      if (match) {
+        const num = parseInt(match[1], 10);
+        initialCounter = num < 10 ? `C-0${num}` : `C-${num}`;
+      }
+    }
+
     const basePayload: any = {
       token_number: tokenNumber,
       user_id: userId,
       service_id: resolvedServiceId,
       office_id: resolvedOfficeId,
       application_id: finalAppId || null,
+      counter_number: initialCounter,
       status: 'WAITING',
       position: totalWaiting + 1,
       people_ahead: totalWaiting,
@@ -320,6 +334,7 @@ export const generateToken = async (
       selected_state: selectedState || 'Gujarat',
       selected_city: selectedCity || 'Rajkot',
       counter_path: Array.isArray(req.body.counterPath) ? req.body.counterPath : null,
+      current_counter_index: 0,
       grace_period_minutes: 15,
       submitted_documents: documents || null,
     };
@@ -356,6 +371,7 @@ export const generateToken = async (
       selected_state: token.selected_state || selectedState || 'Gujarat',
       selected_city: token.selected_city || selectedCity || 'Rajkot',
       counter_path: token.counter_path || req.body.counterPath || null,
+      counter_number: token.counter_number || initialCounter,
     };
 
     // Requirement 1: Service Booking Notification
@@ -366,7 +382,7 @@ export const generateToken = async (
       tokenId: token.id,
       tokenNumber: resolvedTokenNum,
       serviceName: resolvedSvcName,
-      counterNumber: token.counter_number,
+      counterNumber: finalTokenData.counter_number,
       eventType: 'BOOKING_CONFIRMED',
       title: 'Booking Confirmed',
       body: `Your booking for ${resolvedSvcName} is confirmed. Your token number is ${resolvedTokenNum}.`,
@@ -378,6 +394,7 @@ export const generateToken = async (
     });
 
     res.status(201).json({ success: true, data: finalTokenData } as ApiResponse);
+      });
     });
   } catch (err: any) {
     res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: err.message } });
@@ -570,7 +587,8 @@ export const callNextToken = async (
 ): Promise<void> => {
   try {
     const { counterNumber, serviceIds } = req.body;
-    const targetCounter = counterNumber || 'C-04';
+    const normalizedCounter = normalizeCounterCode(counterNumber) || counterNumber || 'C-01';
+    const targetCounter = normalizedCounter;
 
     // 1. If officer already has an IN_SERVICE citizen at this counter, complete it
     await supabaseAdmin
@@ -580,7 +598,7 @@ export const callNextToken = async (
         completed_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       })
-      .eq('counter_number', targetCounter)
+      .in('counter_number', [targetCounter, counterNumber].filter(Boolean))
       .eq('status', 'IN_SERVICE');
 
     // 1B. Check if officer is currently on break time
@@ -628,7 +646,7 @@ export const callNextToken = async (
       }
     }
 
-    // 2. Query for next waiting citizen matching officer's assigned services (Fix 8)
+    // 2. Query for next waiting citizen matching officer's assigned services and counter
     let effectiveServiceIds: string[] = Array.isArray(serviceIds) ? serviceIds : [];
     if (req.user?.role === 'employee' && req.user?.id) {
       const { data: officerRec } = await supabaseAdmin
@@ -647,20 +665,43 @@ export const callNextToken = async (
       }
     }
 
+    const counterNumMatch = String(targetCounter).match(/\d+/);
+    const counterNum = counterNumMatch ? parseInt(counterNumMatch[0], 10) : 1;
+    const counterVariants = Array.from(new Set([
+      targetCounter,
+      counterNumber,
+      `C-${counterNum}`,
+      `C-0${counterNum}`,
+      `${counterNum}`,
+      `Counter ${counterNum}`,
+      `Counter 0${counterNum}`,
+    ].filter(Boolean)));
+
     let query = supabaseAdmin
       .from('queue_tokens')
-      .select('id, token_number, user_id, service_id, status')
+      .select('id, token_number, user_id, service_id, status, counter_number')
       .eq('status', 'WAITING')
-      .order('created_at', { ascending: true })
-      .limit(1);
+      .order('created_at', { ascending: true });
+
+    if (counterNum > 1) {
+      query = query.in('counter_number', counterVariants);
+    }
 
     if (effectiveServiceIds.length > 0) {
       query = query.in('service_id', effectiveServiceIds);
     }
 
-    const { data: waitingList, error: findError } = await query;
+    const { data: waitingList, error: findError } = await query.limit(50);
 
-    if (findError || !waitingList || waitingList.length === 0) {
+    const targetToken = (waitingList || []).find((t) => {
+      const c = t.counter_number;
+      if (!c || c === 'Unassigned') {
+        return counterNum === 1; // Unassigned tokens start at Counter 1
+      }
+      return counterVariants.some((v) => v.toLowerCase() === String(c).trim().toLowerCase());
+    });
+
+    if (findError || !targetToken) {
       res.json({
         success: true,
         data: null,
@@ -668,8 +709,6 @@ export const callNextToken = async (
       } as ApiResponse);
       return;
     }
-
-    const targetToken = waitingList[0];
 
     // 3. Mark token as IN_SERVICE for this counter
     const { data: updatedToken, error: updateError } = await supabaseAdmin
@@ -790,6 +829,22 @@ export const updateTokenStatus = async (
       return;
     }
 
+    // Sync linked application status upon genuine service completion
+    if (status === 'COMPLETED' && token?.application_id) {
+      try {
+        await supabaseAdmin
+          .from('applications')
+          .update({
+            status: 'APPROVED',
+            remarks: 'Service completed successfully at counter desk.',
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', token.application_id);
+      } catch (appUpdateErr) {
+        console.warn('Update linked app on complete warning:', appUpdateErr);
+      }
+    }
+
     if (token && nextCounter) {
       token.next_counter = token.next_counter || nextCounter;
     }
@@ -895,10 +950,29 @@ export const routeNextTable = async (
       return;
     }
 
+    // Normalize destination counter code (e.g. C2 -> C-02)
+    const match = String(nextCounter).match(/C-?0*(\d+)/i) || String(nextCounter).match(/Counter\s*0*(\d+)/i);
+    const normalizedNext = match ? (parseInt(match[1], 10) < 10 ? `C-0${parseInt(match[1], 10)}` : `C-${match[1]}`) : nextCounter;
+
+    // Fetch existing token to track current counter & sequence
+    const { data: existingToken } = await supabaseAdmin
+      .from('queue_tokens')
+      .select('counter_number, current_counter_index, token_number, services(name), user_id')
+      .eq('id', id)
+      .maybeSingle();
+
+    const prevCounter = existingToken?.counter_number || 'Previous Desk';
+    const nextIdx = (existingToken?.current_counter_index ?? 0) + 1;
+
+    // Requirement 2: Counter transfer must NEVER automatically mark the service completed!
+    // Transferred token is assigned to the new counter in WAITING status.
     const updates: Record<string, any> = {
-      status: 'COMPLETED',
-      next_counter: nextCounter,
-      completed_at: new Date().toISOString(),
+      status: 'WAITING',
+      counter_number: normalizedNext,
+      next_counter: null,
+      current_counter_index: nextIdx,
+      called_at: null,
+      service_started_at: null,
       updated_at: new Date().toISOString(),
     };
 
@@ -911,6 +985,7 @@ export const routeNextTable = async (
 
     if (updateRes.error && updateRes.error.code === '42703') {
       delete updates.next_counter;
+      delete updates.current_counter_index;
       updateRes = await supabaseAdmin
         .from('queue_tokens')
         .update(updates)
@@ -926,8 +1001,6 @@ export const routeNextTable = async (
       return;
     }
 
-    token.next_counter = token.next_counter || nextCounter;
-
     // Section 2: Table Redirection Push Notification
     if (token.user_id) {
       const tokenNum = token.token_number || 'Token';
@@ -937,11 +1010,11 @@ export const routeNextTable = async (
         tokenId: token.id,
         tokenNumber: tokenNum,
         serviceName: svcName,
-        counterNumber: token.counter_number,
-        nextCounter,
+        counterNumber: prevCounter,
+        nextCounter: normalizedNext,
         eventType: 'TABLE_REDIRECTED',
-        title: 'Please Proceed to Another Counter',
-        body: `Your token ${tokenNum} has been redirected to ${nextCounter}. Please proceed to the assigned counter.`,
+        title: 'Please Proceed to Next Counter',
+        body: `Your token ${tokenNum} has been transferred to Counter ${normalizedNext}. Please proceed to ${normalizedNext}.`,
       });
     }
 
@@ -954,7 +1027,7 @@ export const routeNextTable = async (
         action: 'ROUTE_NEXT_TABLE',
         entity_type: 'queue_token',
         entity_id: token.id,
-        details: `Turn completed at ${token.counter_number || 'counter'}. Citizen directed to table ${nextCounter}.`,
+        details: `Token transferred from ${prevCounter} to Counter ${normalizedNext}. Citizen is now waiting at ${normalizedNext}.`,
       });
     } catch {}
 

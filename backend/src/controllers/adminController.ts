@@ -107,6 +107,24 @@ export const getAuditLogs = async (
   }
 };
 
+/**
+ * Normalizes user-entered counter codes into canonical format (e.g. 'C-01', 'C-02', 'C-10').
+ * Accepts: 'C1', 'c1', 'C-1', 'C-01', '1', 'Counter 1', 'Counter C-01'.
+ * Rejects unknown or malformed strings.
+ */
+export const normalizeCounterCode = (val?: string | null): string | null => {
+  if (!val || typeof val !== 'string') return null;
+  const trimmed = val.trim();
+  const match = trimmed.match(/^(?:Counter\s*)?C?-?0*(\d+)$/i);
+  if (match) {
+    const num = parseInt(match[1], 10);
+    if (num > 0 && num <= 99) {
+      return num < 10 ? `C-0${num}` : `C-${num}`;
+    }
+  }
+  return null;
+};
+
 export const createEmployeeUser = async (
   req: AuthenticatedRequest,
   res: Response
@@ -140,6 +158,19 @@ export const createEmployeeUser = async (
       res.status(400).json({
         success: false,
         error: { code: 'INVALID_INPUT', message: 'Full Name, Official Email, and Employee ID are required.' },
+      });
+      return;
+    }
+
+    // Validate and normalize assigned counter number
+    const resolvedCounter = normalizeCounterCode(counterNumber);
+    if (!resolvedCounter) {
+      res.status(400).json({
+        success: false,
+        error: {
+          code: 'INVALID_COUNTER_NUMBER',
+          message: 'Invalid counter number. Please enter a valid counter code such as C1, C2, C-01, or C-02.',
+        },
       });
       return;
     }
@@ -198,7 +229,7 @@ export const createEmployeeUser = async (
       { onConflict: 'id' }
     );
 
-    // 3. Create staff_profile row (Aadhaar is strictly last 4 digits only!)
+    // 3. Create staff_profile row with authoritative counter_number
     const staffPayload: any = {
       id: userId,
       user_id: userId,
@@ -210,6 +241,7 @@ export const createEmployeeUser = async (
       taluka: taluka || 'Rajkot',
       office_id: officeId || null,
       counter_id: counterId || null,
+      counter_number: resolvedCounter,
       phone: phone || '+91 9876543210',
       aadhaar_last4: aadhaarLast4 ? String(aadhaarLast4).slice(-4) : null,
       aadhaar_verified: !!aadhaarVerified,
@@ -245,13 +277,23 @@ export const createEmployeeUser = async (
         user_id: userId,
         employee_code: employeeId,
         designation: designation || 'Junior Officer',
-        counter_number: counterNumber || 'C-01',
+        counter_number: resolvedCounter,
         office_id: officeId || null,
         is_active: true,
         assigned_service_ids: assignedServices || [],
       },
-      { onConflict: 'employee_code' }
+      { onConflict: 'user_id' }
     );
+
+    // 4B. Update counters table if matching counter exists
+    try {
+      await supabaseAdmin
+        .from('counters')
+        .update({ assigned_employee_id: userId })
+        .eq('counter_number', resolvedCounter);
+    } catch (counterErr) {
+      console.warn('Counters table update note:', counterErr);
+    }
 
     // 5. Audit Log
     await supabaseAdmin.from('audit_logs').insert({
@@ -261,7 +303,7 @@ export const createEmployeeUser = async (
       action: 'CREATE_EMPLOYEE_ACCOUNT',
       entity_type: 'staff_profile',
       entity_id: userId,
-      details: `Created Employee account for ${fullName} (${email}) - Employee ID: ${employeeId}.`,
+      details: `Created Employee account for ${fullName} (${email}) - Employee ID: ${employeeId}. Assigned counter: ${resolvedCounter}.`,
     });
 
     res.status(201).json({
@@ -537,8 +579,23 @@ export const updateEmployeeUser = async (
 
     // 1. Update staff_profiles table (safely handling schema-cache if counter_number column is pending migration)
     const updatePayload: any = {};
+    let resolvedCounter: string | null = null;
+    if (counterNumber !== undefined) {
+      resolvedCounter = normalizeCounterCode(counterNumber);
+      if (!resolvedCounter) {
+        res.status(400).json({
+          success: false,
+          error: {
+            code: 'INVALID_COUNTER_NUMBER',
+            message: 'Invalid counter number. Please enter a valid counter code such as C1, C2, C-01, or C-02.',
+          },
+        });
+        return;
+      }
+      updatePayload.counter_number = resolvedCounter;
+    }
+
     if (designation !== undefined) updatePayload.designation = designation;
-    if (counterNumber !== undefined) updatePayload.counter_number = counterNumber;
     if (phone !== undefined) updatePayload.phone = phone;
     if (status !== undefined) updatePayload.status = status;
     if (district !== undefined) updatePayload.district = district;
@@ -584,22 +641,22 @@ export const updateEmployeeUser = async (
     }
 
     // 3. Authoritatively update officers table (Fix 1, Fix 10, Fix 15)
-    if (counterNumber || status || assignedServices) {
+    if (resolvedCounter || status || assignedServices) {
       await supabaseAdmin.from('officers').upsert({
         user_id: id,
-        counter_number: counterNumber || undefined,
+        counter_number: resolvedCounter || undefined,
         assigned_service_ids: assignedServices || undefined,
         is_active: status === 'ACTIVE',
       }, { onConflict: 'user_id' });
     }
 
     // 4. Authoritatively assign counter in counters table
-    if (counterNumber) {
+    if (resolvedCounter) {
       try {
         await supabaseAdmin
           .from('counters')
           .update({ assigned_employee_id: id })
-          .eq('counter_number', counterNumber);
+          .eq('counter_number', resolvedCounter);
       } catch (counterErr) {
         console.warn('Counters table update note:', counterErr);
       }

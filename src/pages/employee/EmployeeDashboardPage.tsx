@@ -7,7 +7,7 @@ import { StatusBadge } from '../../components/ui/StatusBadge';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { Modal } from '../../components/ui/Modal';
 import { supabase } from '../../config/supabase';
-import { getCityTables, normalizeTableNumber } from '../../utils/cityTables';
+import { getCityTables, normalizeTableNumber, formatCounterDisplay } from '../../utils/cityTables';
 import {
   Play,
   CheckCircle,
@@ -39,9 +39,11 @@ export const EmployeeDashboardPage: React.FC = () => {
     refreshServices,
   } = useData();
 
-  // Fix 9 & Fix 15: Authoritative counter assigned to authenticated employee
+  // Authoritative counter assigned to authenticated employee
   const [activeCounter, setActiveCounter] = useState<string>(() => {
-    return (currentUser as any)?.counterNumber ? `C-${(currentUser as any).counterNumber}` : 'Loading...';
+    return (currentUser as any)?.counterNumber
+      ? formatCounterDisplay((currentUser as any).counterNumber)
+      : 'Loading...';
   });
 
   const [isQueuePaused, setIsQueuePaused] = useState(false);
@@ -103,7 +105,7 @@ export const EmployeeDashboardPage: React.FC = () => {
           const { data: counterRow } = await supabase
             .from('counters')
             .select('counter_number')
-            .eq('assigned_officer_id', currentUser.id)
+            .or(`assigned_employee_id.eq.${currentUser.id},assigned_officer_id.eq.${currentUser.id}`)
             .maybeSingle();
           if (counterRow?.counter_number) {
             resolvedCounter = counterRow.counter_number;
@@ -111,7 +113,9 @@ export const EmployeeDashboardPage: React.FC = () => {
         }
 
         if (resolvedCounter) {
-          setActiveCounter(resolvedCounter);
+          setActiveCounter(formatCounterDisplay(resolvedCounter));
+        } else if ((currentUser as any)?.counterNumber) {
+          setActiveCounter(formatCounterDisplay((currentUser as any).counterNumber));
         } else {
           setActiveCounter('Unassigned');
         }
@@ -124,7 +128,7 @@ export const EmployeeDashboardPage: React.FC = () => {
       }
     };
     fetchOfficerProfile();
-  }, [currentUser?.id]);
+  }, [currentUser?.id, (currentUser as any)?.counterNumber]);
 
   // EMPLOYEE ASSIGNED SERVICES STATE (Saved per user)
   const empStorageKey = currentUser?.id ? `nagrikq_emp_services_${currentUser.id}` : 'nagrikq_emp_services_default';

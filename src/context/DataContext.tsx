@@ -924,11 +924,24 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  // ROUTE TO NEXT TABLE
+  // ROUTE TO NEXT TABLE (Requirement 2 Step 3 & 4)
   const handleRouteToNextTable = async (tokenId: string, nextCounter: string): Promise<void> => {
-    mockRepository.routeToNextTable(tokenId, nextCounter);
+    const match = String(nextCounter).match(/C-?0*(\d+)/i) || String(nextCounter).match(/Counter\s*0*(\d+)/i);
+    const normalizedNext = match ? (parseInt(match[1], 10) < 10 ? `C-0${parseInt(match[1], 10)}` : `C-${match[1]}`) : nextCounter;
+
+    mockRepository.routeToNextTable(tokenId, normalizedNext);
     setDbQueueTokens((prev) =>
-      prev.map((q) => (q.id === tokenId ? { ...q, status: 'COMPLETED', nextCounter } : q))
+      prev.map((q) =>
+        q.id === tokenId
+          ? {
+              ...q,
+              status: 'WAITING',
+              counterNumber: normalizedNext,
+              nextCounter: undefined,
+              currentCounterIndex: (q.currentCounterIndex ?? 0) + 1,
+            }
+          : q
+      )
     );
 
     try {
@@ -940,16 +953,18 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ nextCounter }),
+        body: JSON.stringify({ nextCounter: normalizedNext }),
       });
 
       if (!res.ok) {
         // Direct Supabase fallback
         try {
           await supabase.from('queue_tokens').update({
-            status: 'COMPLETED',
-            next_counter: nextCounter,
-            completed_at: new Date().toISOString(),
+            status: 'WAITING',
+            counter_number: normalizedNext,
+            next_counter: null,
+            called_at: null,
+            service_started_at: null,
             updated_at: new Date().toISOString(),
           }).eq('id', tokenId);
         } catch {
@@ -957,7 +972,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const currentToken = dbQueueTokens.find((q) => q.id === tokenId);
           if (currentToken?.applicationId) {
             await supabase.from('applications').update({
-              remarks: `Direct to Table ${nextCounter}`,
+              remarks: `Direct to Table ${normalizedNext}`,
             }).eq('id', currentToken.applicationId);
           }
         }

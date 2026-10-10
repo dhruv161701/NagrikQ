@@ -24,6 +24,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import type { Application } from '../../types';
+import { formatCounterDisplay } from '../../utils/cityTables';
 
 export const EmployeeApplicationsPage: React.FC = () => {
   const { currentUser } = useAuth();
@@ -38,9 +39,9 @@ export const EmployeeApplicationsPage: React.FC = () => {
     refreshApplications,
   } = useData();
 
-  const activeCounter = (currentUser as any)?.counterNumber
-    ? `C-0${(currentUser as any).counterNumber}`
-    : 'C-04';
+  const activeCounter = useMemo(() => {
+    return formatCounterDisplay((currentUser as any)?.counterNumber);
+  }, [currentUser]);
 
   // Officer assigned services stored per employee
   const empStorageKey = currentUser?.id ? `nagrikq_emp_services_${currentUser.id}` : 'nagrikq_emp_services_default';
@@ -264,32 +265,14 @@ export const EmployeeApplicationsPage: React.FC = () => {
         'Physical document check completed: all required hard-copy documents verified OK at counter.'
       );
 
-      // Close current citizen's turn
-      const matchingTokens = queueTokens.filter(
-        (q) =>
-          (q.applicationId === inspectApp.id ||
-            q.citizenId === inspectApp.citizenId ||
-            q.counterNumber === activeCounter) &&
-          (q.status === 'IN_SERVICE' || q.status === 'CALLED' || q.status === 'WAITING')
-      );
-      for (const t of matchingTokens) {
-        await updateTokenStatus(t.id, 'COMPLETED');
-      }
-
-      // Automatically call next citizen in queue
-      const nextToken = await callNextToken(activeCounter, selectedServiceIds);
-
+      // Do NOT complete the queue token here!
+      // In NagrikQ multi-counter workflow, document verification verifies the documents,
+      // while the token remains active for counter processing or transfer to next counter.
       setIsDocsModalOpen(false);
 
-      if (nextToken) {
-        setQueueActionBanner(
-          `✓ Physical verification passed (All Documents OK)! ${currentApplicantName}'s service is proceeding. 📢 Automatically calling NEXT: Token ${nextToken.tokenNumber} (${nextToken.serviceName}) to Counter ${activeCounter}!`
-        );
-      } else {
-        setQueueActionBanner(
-          `✓ Physical verification passed (All Documents OK)! ${currentApplicantName}'s service is proceeding. No other citizens currently waiting in queue.`
-        );
-      }
+      setQueueActionBanner(
+        `✓ Physical verification passed (All Documents OK)! ${currentApplicantName}'s documents verified. Ready for counter processing or transfer to next counter.`
+      );
     } else {
       // 2. ONE OR MORE NOT OK: Stop process and inform user which document needs correction
       const failedNames = failedDocs.map((d) => d.requirementName).join(', ');
@@ -305,32 +288,22 @@ export const EmployeeApplicationsPage: React.FC = () => {
         `Physical document check failed at counter. Documents needing correction: ${failedNames}. Please correct physical documents and return through the normal booking process.`
       );
 
-      // Close current citizen's token (stopped)
+      // Reject only this citizen's specific token (never all tokens at this counter)
       const matchingTokens = queueTokens.filter(
         (q) =>
           (q.applicationId === inspectApp.id ||
-            q.citizenId === inspectApp.citizenId ||
-            q.counterNumber === activeCounter) &&
+            (q.citizenId === inspectApp.citizenId && q.serviceId === inspectApp.serviceId)) &&
           (q.status === 'IN_SERVICE' || q.status === 'CALLED' || q.status === 'WAITING')
       );
       for (const t of matchingTokens) {
-        await updateTokenStatus(t.id, 'COMPLETED');
+        await updateTokenStatus(t.id, 'REJECTED');
       }
-
-      // Automatically call next citizen in queue
-      const nextToken = await callNextToken(activeCounter, selectedServiceIds);
 
       setIsDocsModalOpen(false);
 
-      if (nextToken) {
-        setQueueActionBanner(
-          `✕ Physical document check failed for ${currentApplicantName} (${failedNames}). Application stopped. 📢 Automatically calling NEXT: Token ${nextToken.tokenNumber} to Counter ${activeCounter}!`
-        );
-      } else {
-        setQueueActionBanner(
-          `✕ Physical document check failed for ${currentApplicantName} (${failedNames}). Application stopped. Citizen informed to correct physical documents.`
-        );
-      }
+      setQueueActionBanner(
+        `✕ Physical document check failed for ${currentApplicantName} (${failedNames}). Application stopped. Citizen informed to correct physical documents.`
+      );
     }
 
     setTimeout(() => setQueueActionBanner(''), 9000);
@@ -669,7 +642,7 @@ export const EmployeeApplicationsPage: React.FC = () => {
                         display: 'inline-block',
                       }}
                     >
-                      {activeCounter}
+                      {formatCounterDisplay(linkedToken?.counterNumber || activeCounter)}
                     </span>
                   </div>
 

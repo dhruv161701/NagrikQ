@@ -8,7 +8,7 @@ import { StatusBadge } from '../../components/ui/StatusBadge';
 import { Card } from '../../components/ui/Card';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { Modal } from '../../components/ui/Modal';
-import { getCityTables, normalizeTableNumber } from '../../utils/cityTables';
+import { getCityTables, normalizeTableNumber, formatCounterDisplay } from '../../utils/cityTables';
 import type { QueueToken } from '../../types';
 import {
   Play,
@@ -34,7 +34,9 @@ export const EmployeeQueuePage: React.FC = () => {
     refreshQueueTokens,
   } = useData();
 
-  const [activeCounter] = useState<string>('C-1');
+  const activeCounter = useMemo(() => {
+    return formatCounterDisplay((currentUser as any)?.counterNumber);
+  }, [currentUser]);
   const [activeRoutingToken, setActiveRoutingToken] = useState<QueueToken | null>(null);
   const [selectedNextTable, setSelectedNextTable] = useState<string>('C-2');
   const [isSubmittingNextTable, setIsSubmittingNextTable] = useState(false);
@@ -98,14 +100,22 @@ export const EmployeeQueuePage: React.FC = () => {
 
   // Filter queue tokens based on counter and selected services
   const displayedTokens = useMemo(() => {
+    const myNorm = normalizeTableNumber(activeCounter);
     return queueTokens.filter((token) => {
+      const tokenNorm = normalizeTableNumber(token.counterNumber);
+      const isMyCounter = tokenNorm === myNorm;
+      const isUnassignedCounter = !token.counterNumber || token.counterNumber === 'Unassigned';
+
       // Counter & Service scope
       if (filterScope === 'MY_COUNTER_AND_SERVICES') {
-        const matchesCounter = token.counterNumber === activeCounter;
-        const matchesWaitingService = token.status === 'WAITING' && (selectedServiceIds.length === 0 || selectedServiceIds.includes(token.serviceId));
+        const matchesCounter = isMyCounter;
+        const matchesWaitingService =
+          token.status === 'WAITING' &&
+          (isMyCounter || isUnassignedCounter) &&
+          (selectedServiceIds.length === 0 || selectedServiceIds.includes(token.serviceId));
         if (!matchesCounter && !matchesWaitingService) return false;
       } else if (filterScope === 'MY_COUNTER_ALL') {
-        if (token.counterNumber !== activeCounter && token.status !== 'WAITING') return false;
+        if (!isMyCounter && !(token.status === 'WAITING' && isUnassignedCounter)) return false;
       }
 
       // Status filter

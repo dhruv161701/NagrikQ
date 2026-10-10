@@ -24,31 +24,57 @@ export const getProfile = async (
       return;
     }
 
+    const targetProfile = profile || {
+      id: userId,
+      email: req.user?.email || '',
+      full_name: req.user?.fullName || 'Citizen User',
+      role: req.user?.role || 'citizen',
+      onboarding_completed: false,
+      tour_completed: false,
+    };
+
     if (!profile) {
       // Create initial profile for user if missing
-      const { data: newProfile, error: insErr } = await supabaseAdmin
+      await supabaseAdmin
         .from('profiles')
-        .insert({
-          id: userId,
-          email: req.user?.email || '',
-          full_name: req.user?.fullName || 'Citizen User',
-          role: req.user?.role || 'citizen',
-          onboarding_completed: false,
-          tour_completed: false,
-        })
-        .select('*')
-        .single();
+        .insert(targetProfile);
+    }
 
-      if (insErr) {
-        res.status(500).json({ success: false, error: { code: 'DB_ERROR', message: insErr.message } });
-        return;
-      }
+    // Attach authoritative employee counter and officer details
+    if (targetProfile.role === 'employee' || targetProfile.role === 'admin') {
+      const { data: staff } = await supabaseAdmin
+        .from('staff_profiles')
+        .select('counter_number, assigned_service_ids, designation, break_start_time, break_end_time, on_break')
+        .eq('id', userId)
+        .maybeSingle();
 
-      res.json({ success: true, data: newProfile } as ApiResponse);
+      const { data: officer } = await supabaseAdmin
+        .from('officers')
+        .select('counter_number, assigned_service_ids, designation')
+        .eq('user_id', userId)
+        .maybeSingle();
+
+      const resolvedCounter = staff?.counter_number || officer?.counter_number || null;
+      const assignedServices = staff?.assigned_service_ids || officer?.assigned_service_ids || [];
+
+      res.json({
+        success: true,
+        data: {
+          ...targetProfile,
+          counter_number: resolvedCounter,
+          counterNumber: resolvedCounter,
+          assigned_services: assignedServices,
+          assignedServices,
+          designation: staff?.designation || officer?.designation || targetProfile.designation,
+          breakStartTime: staff?.break_start_time,
+          breakEndTime: staff?.break_end_time,
+          onBreak: staff?.on_break || false,
+        },
+      } as ApiResponse);
       return;
     }
 
-    res.json({ success: true, data: profile } as ApiResponse);
+    res.json({ success: true, data: targetProfile } as ApiResponse);
   } catch (err: any) {
     res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: err.message } });
   }

@@ -145,6 +145,11 @@ export const AdminEmployeesPage: React.FC = () => {
       return;
     }
 
+    if (!counterNumber || !counterNumber.trim()) {
+      setError('Assigned Counter Number is required (e.g. C-01, C-02, or C1).');
+      return;
+    }
+
     if (aadhaarLast4 && aadhaarLast4.length !== 4) {
       setError('Aadhaar Last 4 Digits must be exactly 4 numeric digits.');
       return;
@@ -170,7 +175,7 @@ export const AdminEmployeesPage: React.FC = () => {
           designation,
           aadhaarLast4,
           aadhaarVerified: !!aadhaarLast4,
-          counterNumber,
+          counterNumber: counterNumber.trim(),
           department,
           district,
           taluka,
@@ -210,6 +215,11 @@ export const AdminEmployeesPage: React.FC = () => {
     e.preventDefault();
     if (!editingEmployee) return;
 
+    if (!editCounterNumber || !editCounterNumber.trim()) {
+      setEditError('Assigned Counter is required (e.g. C-01, C-02, or C1).');
+      return;
+    }
+
     setEditSubmitting(true);
     setEditError('');
 
@@ -226,7 +236,7 @@ export const AdminEmployeesPage: React.FC = () => {
         body: JSON.stringify({
           fullName: editFullName,
           designation: editDesignation,
-          counterNumber: editCounterNumber,
+          counterNumber: editCounterNumber.trim(),
           phone: editPhone,
           status: editStatus,
           breakStartTime: editBreakStartTime,
@@ -572,26 +582,14 @@ export const AdminEmployeesPage: React.FC = () => {
 
               <div>
                 <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '4px' }}>
-                  Assigned Counter Number
+                  Assigned Counter Number <span style={{ color: 'red' }}>*</span>
                 </label>
-                <select
+                <Input
                   value={counterNumber}
                   onChange={(e) => setCounterNumber(e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '10px 12px',
-                    borderRadius: '8px',
-                    border: '1px solid var(--color-border)',
-                    backgroundColor: 'white',
-                    fontSize: '0.9rem',
-                  }}
-                >
-                  <option value="C-01">Counter C-01 (General Intake)</option>
-                  <option value="C-02">Counter C-02 (Revenue Services)</option>
-                  <option value="C-03">Counter C-03 (Certificates Desk)</option>
-                  <option value="C-04">Counter C-04 (Verification Desk)</option>
-                  <option value="C-05">Counter C-05 (Senior Citizens)</option>
-                </select>
+                  placeholder="e.g. C-01, C-02, or C1"
+                  required
+                />
               </div>
             </div>
 
@@ -759,26 +757,14 @@ export const AdminEmployeesPage: React.FC = () => {
 
             <div>
               <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '4px' }}>
-                Assigned Counter
+                Assigned Counter Number <span style={{ color: 'red' }}>*</span>
               </label>
-              <select
+              <Input
                 value={editCounterNumber}
                 onChange={(e) => setEditCounterNumber(e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '10px 12px',
-                  borderRadius: '8px',
-                  border: '1px solid var(--color-border)',
-                  backgroundColor: 'white',
-                  fontSize: '0.9rem',
-                }}
-              >
-                <option value="C-01">Counter C-01</option>
-                <option value="C-02">Counter C-02</option>
-                <option value="C-03">Counter C-03</option>
-                <option value="C-04">Counter C-04</option>
-                <option value="C-05">Counter C-05</option>
-              </select>
+                placeholder="e.g. C-01, C-02, or C1"
+                required
+              />
             </div>
           </div>
 

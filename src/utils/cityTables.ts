@@ -26,3 +26,17 @@ export const normalizeTableNumber = (val?: string): string => {
   }
   return val.trim();
 };
+
+/**
+ * Format counter code to canonical 2-digit format (e.g. 'C-1', 'C1', '1' -> 'C-01')
+ */
+export const formatCounterDisplay = (val?: string): string => {
+  if (!val) return 'C-01';
+  const match = val.match(/\d+/);
+  if (match) {
+    const num = parseInt(match[0], 10);
+    return `C-${num < 10 ? '0' + num : num}`;
+  }
+  return val.trim();
+};
+
