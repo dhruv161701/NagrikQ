@@ -463,6 +463,40 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // 6. Fetch Employees from authoritative Supabase staff_profiles
   const fetchEmployeesFromAPI = useCallback(async () => {
     try {
+      const token = await getAuthToken();
+      if (token) {
+        try {
+          const res = await fetch('/api/admin/employees', {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (res.ok) {
+            const json = await res.json();
+            if (json.success && Array.isArray(json.data) && json.data.length > 0) {
+              setDbEmployees(
+                json.data.map((e: any) => ({
+                  id: e.id,
+                  employeeIdCode: e.employee_id || e.id.slice(0, 8),
+                  name: e.full_name || 'Counter Staff',
+                  email: e.email || '',
+                  phone: e.phone || '',
+                  officeId: e.office_id || '',
+                  officeName: e.offices?.name || 'District Office',
+                  counterNumber: e.counter_number ? formatCounterDisplay(e.counter_number) : 'C-01',
+                  isActive: e.status === 'ACTIVE' && e.is_active !== false,
+                  assignedServiceIds: e.assigned_services || e.assigned_service_ids || [],
+                  breakStartTime: e.break_start_time,
+                  breakEndTime: e.break_end_time,
+                  isOnBreak: e.on_break || false,
+                }))
+              );
+              return;
+            }
+          }
+        } catch (apiErr) {
+          console.warn('[DataContext] /api/admin/employees fetch error, trying direct DB:', apiErr);
+        }
+      }
+
       const { data: staffList, error } = await supabase
         .from('staff_profiles')
         .select('*, offices(id, name)')
@@ -559,6 +593,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     fetchEmployeesFromAPI();
 
     if (isAuthenticated) {
+      fetchEmployeesFromAPI();
       fetchApplicationsFromAPI();
       fetchQueueTokensFromAPI(currentUser?.role);
       if (currentUser && ['admin', 'superadmin'].includes(currentUser.role)) {
@@ -605,6 +640,9 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'audit_logs' }, () => {
         if (authRef.current.isAuthenticated) fetchAuditLogsFromAPI();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'staff_profiles' }, () => {
+        fetchEmployeesFromAPI();
       });
 
     channel.subscribe();
@@ -612,13 +650,14 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [fetchServicesFromAPI, fetchApplicationsFromAPI, fetchQueueTokensFromAPI, fetchChangeRequestsFromAPI, fetchAuditLogsFromAPI]);
+  }, [fetchServicesFromAPI, fetchApplicationsFromAPI, fetchQueueTokensFromAPI, fetchChangeRequestsFromAPI, fetchAuditLogsFromAPI, fetchEmployeesFromAPI]);
 
   // 3. Fast polling fallback every 2000ms for continuous live data across all active pages & tabs
   useEffect(() => {
     const interval = setInterval(() => {
       fetchServicesFromAPI();
       if (authRef.current.isAuthenticated) {
+        fetchEmployeesFromAPI();
         fetchApplicationsFromAPI();
         fetchQueueTokensFromAPI(authRef.current.role);
         if (authRef.current.role && ['admin', 'superadmin'].includes(authRef.current.role)) {
@@ -631,7 +670,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => {
       clearInterval(interval);
     };
-  }, [fetchServicesFromAPI, fetchApplicationsFromAPI, fetchQueueTokensFromAPI, fetchChangeRequestsFromAPI, fetchAuditLogsFromAPI]);
+  }, [fetchServicesFromAPI, fetchApplicationsFromAPI, fetchQueueTokensFromAPI, fetchChangeRequestsFromAPI, fetchAuditLogsFromAPI, fetchEmployeesFromAPI]);
 
   useEffect(() => {
     const unsub = mockRepository.subscribe(() => {

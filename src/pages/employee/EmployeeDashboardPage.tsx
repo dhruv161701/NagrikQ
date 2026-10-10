@@ -199,8 +199,17 @@ export const EmployeeDashboardPage: React.FC = () => {
       }
     });
 
-    return Array.from(map.values()).sort((a, b) => a.counter.localeCompare(b.counter));
-  }, [employees, activeCounter]);
+    const assignedList = Array.from(map.values()).sort((a, b) => a.counter.localeCompare(b.counter));
+    if (assignedList.length > 0) return assignedList;
+
+    // Resilient fallback to office tables so routing is never blocked
+    const city = (currentUser as any)?.district || (currentUser as any)?.selectedCity || 'Rajkot';
+    const fallbackTables = getCityTables(city).filter((t) => normalizeTableNumber(t) !== currentNorm);
+    return fallbackTables.map((t) => ({
+      counter: formatCounterDisplay(t),
+      officerName: 'Next Counter Desk',
+    }));
+  }, [employees, activeCounter, currentUser]);
 
   // Synchronize default selected next table when modal opens or counters change
   useEffect(() => {
@@ -285,8 +294,8 @@ export const EmployeeDashboardPage: React.FC = () => {
 
   // 2. NEXT TABLE: Open modal to pick next physical table
   const handleOpenNextTableModal = () => {
-    if (availableCityTables.length > 0) {
-      setSelectedNextTable(availableCityTables[0]);
+    if (availableNextCounters.length > 0) {
+      setSelectedNextTable(availableNextCounters[0].counter);
     }
     setIsNextTableModalOpen(true);
   };

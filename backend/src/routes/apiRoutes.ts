@@ -171,7 +171,7 @@ router.post('/services/:id/sync-rag', authenticateToken, requireRole('admin', 's
 
 // ADMIN ROUTES
 router.post('/admin/employees', authenticateToken, requireRole('admin', 'superadmin'), createEmployeeUser);
-router.get('/admin/employees', authenticateToken, requireRole('admin', 'superadmin'), getEmployeesList);
+router.get('/admin/employees', authenticateToken, requireRole('employee', 'admin', 'superadmin'), getEmployeesList);
 router.patch('/admin/employees/:id', authenticateToken, requireRole('admin', 'superadmin'), updateEmployeeUser);
 router.delete('/admin/employees/:id', authenticateToken, requireRole('admin', 'superadmin'), deleteEmployeeUser);
 router.post('/admin/office/setup', authenticateToken, requireRole('admin', 'superadmin'), setupOfficeConfig);
