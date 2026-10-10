@@ -6,7 +6,8 @@ import { Badge } from '../../components/ui/Badge';
 import { Modal } from '../../components/ui/Modal';
 import { ToastContainer } from '../../components/ui/Toast';
 import type { ToastMessage } from '../../components/ui/Toast';
-import { CheckCircle2, XCircle, GitPullRequest } from 'lucide-react';
+import { useData } from '../../context/DataContext';
+import { CheckCircle2, XCircle, GitPullRequest, FileText } from 'lucide-react';
 
 interface DBChangeRequest {
   id: string;
@@ -23,6 +24,7 @@ interface DBChangeRequest {
 }
 
 export const SuperAdminChangeRequestsPage: React.FC = () => {
+  const { services } = useData();
   const [changeRequests, setChangeRequests] = useState<DBChangeRequest[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -214,7 +216,36 @@ export const SuperAdminChangeRequestsPage: React.FC = () => {
                     </Badge>
                   </div>
 
-                  <h3 style={{ fontSize: '17px', fontWeight: 700, color: 'var(--color-primary-900)', margin: '6px 0 2px 0' }}>
+                  {/* Target Service Display */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: '8px 0 6px 0', flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--color-neutral-500)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                      Service:
+                    </span>
+                    <span
+                      style={{
+                        fontSize: '14px',
+                        fontWeight: 800,
+                        color: 'var(--color-primary-950)',
+                        backgroundColor: 'var(--color-primary-50)',
+                        border: '1px solid var(--color-primary-200)',
+                        padding: '3px 10px',
+                        borderRadius: '6px',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                      }}
+                    >
+                      <FileText size={15} style={{ color: 'var(--color-primary-700)' }} />
+                      {cr.services?.name || (cr as any).service_name || services.find((s) => s.id === cr.service_id)?.name || 'Government Service'}
+                    </span>
+                    {cr.services?.code && (
+                      <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--color-neutral-500)', fontFamily: 'monospace' }}>
+                        ({cr.services.code})
+                      </span>
+                    )}
+                  </div>
+
+                  <h3 style={{ fontSize: '17px', fontWeight: 700, color: 'var(--color-primary-900)', margin: '4px 0 2px 0' }}>
                     Proposed Document: <span style={{ color: 'var(--color-primary-700)' }}>{cr.added_document_name}</span>
                   </h3>
 
@@ -281,8 +312,11 @@ export const SuperAdminChangeRequestsPage: React.FC = () => {
             <div style={{ fontSize: '13px', color: 'var(--color-neutral-700)', marginBottom: '4px' }}>
               Request: <strong>#{selectedCR?.request_number}</strong> ({selectedCR?.office_name})
             </div>
+            <div style={{ fontSize: '13px', color: 'var(--color-primary-800)', fontWeight: 700, marginBottom: '6px' }}>
+              Target Service: {selectedCR?.services?.name || (selectedCR as any)?.service_name || services.find((s) => s.id === selectedCR?.service_id)?.name || 'Government Service'}
+            </div>
             <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--color-primary-900)' }}>
-              Document: {selectedCR?.added_document_name}
+              Proposed Document: <span style={{ color: 'var(--color-primary-700)' }}>{selectedCR?.added_document_name}</span>
             </div>
           </div>
 

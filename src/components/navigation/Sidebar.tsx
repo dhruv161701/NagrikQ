@@ -53,8 +53,7 @@ export const Sidebar: React.FC = () => {
       { label: 'Employees', path: '/admin/employees', icon: <Users size={20} /> },
       { label: 'Services & Documents', path: '/admin/services', icon: <FileText size={20} /> },
       { label: 'Change Requests', path: '/admin/change-requests', icon: <GitPullRequest size={20} /> },
-      { label: 'Reports & Analytics', path: '/admin/reports', icon: <BarChart3 size={20} /> },
-      { label: 'Audit Logs', path: '/admin/audit-logs', icon: <History size={20} /> },
+      { label: 'System Audit Logs', path: '/admin/audit-logs', icon: <History size={20} /> },
     ];
   } else if (activeRole === 'superadmin') {
     items = [
@@ -62,7 +61,6 @@ export const Sidebar: React.FC = () => {
       { label: 'Global Services Catalog', path: '/super-admin/services', icon: <FileText size={20} /> },
       { label: 'Change Requests Approval', path: '/super-admin/change-requests', icon: <GitPullRequest size={20} /> },
       { label: 'District Admins', path: '/super-admin/admins', icon: <Users size={20} /> },
-      { label: 'Government Offices', path: '/super-admin/offices', icon: <Building size={20} /> },
       { label: 'System Audit Logs', path: '/super-admin/audit-logs', icon: <History size={20} /> },
       { label: 'System Settings', path: '/super-admin/settings', icon: <Settings size={20} /> },
     ];

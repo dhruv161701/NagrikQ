@@ -303,7 +303,7 @@ export const generateToken = async (
       }
     }
 
-    // Resolve initial counter from configured service counter path (Requirement 2 Step 1)
+    // Resolve initial counter from configured service counter path or active assigned employees
     let initialCounter = 'C-01';
     if (Array.isArray(req.body.counterPath) && req.body.counterPath.length > 0) {
       const firstStep = String(req.body.counterPath[0]);
@@ -312,6 +312,28 @@ export const generateToken = async (
         const num = parseInt(match[1], 10);
         initialCounter = num < 10 ? `C-0${num}` : `C-${num}`;
       }
+    }
+
+    try {
+      const { data: activeStaff } = await supabaseAdmin
+        .from('staff_profiles')
+        .select('counter_number')
+        .eq('role', 'employee')
+        .eq('status', 'ACTIVE')
+        .not('counter_number', 'is', null);
+
+      if (activeStaff && activeStaff.length > 0) {
+        const activeCounters = activeStaff
+          .map((s) => normalizeCounterCode(s.counter_number))
+          .filter(Boolean) as string[];
+        activeCounters.sort();
+        // If the default initial counter does not have an active employee assigned, route to the lowest active employee counter
+        if (activeCounters.length > 0 && !activeCounters.includes(initialCounter)) {
+          initialCounter = activeCounters[0];
+        }
+      }
+    } catch {
+      // Fallback to initialCounter
     }
 
     const basePayload: any = {
@@ -649,13 +671,26 @@ export const callNextToken = async (
     // 2. Query for next waiting citizen matching officer's assigned services and counter
     let effectiveServiceIds: string[] = Array.isArray(serviceIds) ? serviceIds : [];
     if (req.user?.role === 'employee' && req.user?.id) {
-      const { data: officerRec } = await supabaseAdmin
-        .from('officers')
+      let assigned: string[] | null = null;
+      const { data: staffRec } = await supabaseAdmin
+        .from('staff_profiles')
         .select('assigned_service_ids')
-        .eq('user_id', req.user.id)
+        .eq('id', req.user.id)
         .maybeSingle();
 
-      const assigned = officerRec?.assigned_service_ids;
+      if (Array.isArray(staffRec?.assigned_service_ids) && staffRec.assigned_service_ids.length > 0) {
+        assigned = staffRec.assigned_service_ids;
+      } else {
+        const { data: officerRec } = await supabaseAdmin
+          .from('officers')
+          .select('assigned_service_ids')
+          .eq('user_id', req.user.id)
+          .maybeSingle();
+        if (Array.isArray(officerRec?.assigned_service_ids) && officerRec.assigned_service_ids.length > 0) {
+          assigned = officerRec.assigned_service_ids;
+        }
+      }
+
       if (Array.isArray(assigned) && assigned.length > 0) {
         if (effectiveServiceIds.length > 0) {
           effectiveServiceIds = effectiveServiceIds.filter((id) => assigned.includes(id));
@@ -677,15 +712,30 @@ export const callNextToken = async (
       `Counter 0${counterNum}`,
     ].filter(Boolean)));
 
+    // Check active assigned employee counters from staff_profiles
+    const { data: activeStaffList } = await supabaseAdmin
+      .from('staff_profiles')
+      .select('counter_number')
+      .eq('role', 'employee')
+      .eq('status', 'ACTIVE')
+      .not('counter_number', 'is', null);
+
+    const activeCounters = (activeStaffList || [])
+      .map((s) => normalizeCounterCode(s.counter_number))
+      .filter(Boolean) as string[];
+    activeCounters.sort();
+
+    const isC01Staffed = activeCounters.includes('C-01');
+    const isLowestStaffedCounter =
+      activeCounters.length === 0 ||
+      activeCounters[0] === targetCounter ||
+      (!isC01Staffed && activeCounters[0] === targetCounter);
+
     let query = supabaseAdmin
       .from('queue_tokens')
       .select('id, token_number, user_id, service_id, status, counter_number')
       .eq('status', 'WAITING')
       .order('created_at', { ascending: true });
-
-    if (counterNum > 1) {
-      query = query.in('counter_number', counterVariants);
-    }
 
     if (effectiveServiceIds.length > 0) {
       query = query.in('service_id', effectiveServiceIds);
@@ -693,13 +743,23 @@ export const callNextToken = async (
 
     const { data: waitingList, error: findError } = await query.limit(50);
 
-    const targetToken = (waitingList || []).find((t) => {
+    // 1. Priority 1: Token specifically waiting for / routed to this counter
+    let targetToken = (waitingList || []).find((t) => {
       const c = t.counter_number;
-      if (!c || c === 'Unassigned') {
-        return counterNum === 1; // Unassigned tokens start at Counter 1
-      }
+      if (!c) return false;
       return counterVariants.some((v) => v.toLowerCase() === String(c).trim().toLowerCase());
     });
+
+    // 2. Priority 2: If no token explicitly at this counter, and this counter is the lowest staffed desk (or C-01 is unstaffed),
+    // pick unassigned / initial C-01 tokens so citizens are served immediately!
+    if (!targetToken && isLowestStaffedCounter) {
+      targetToken = (waitingList || []).find((t) => {
+        const c = t.counter_number;
+        if (!c || c === 'Unassigned') return true;
+        if (!isC01Staffed && (c === 'C-01' || c === 'C-1' || c === '1')) return true;
+        return false;
+      });
+    }
 
     if (findError || !targetToken) {
       res.json({

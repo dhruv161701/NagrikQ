@@ -28,6 +28,7 @@ export const EmployeeQueuePage: React.FC = () => {
   const {
     services,
     queueTokens,
+    employees,
     callNextToken,
     updateTokenStatus,
     routeToNextTable,
@@ -38,8 +39,40 @@ export const EmployeeQueuePage: React.FC = () => {
     return formatCounterDisplay((currentUser as any)?.counterNumber);
   }, [currentUser]);
   const [activeRoutingToken, setActiveRoutingToken] = useState<QueueToken | null>(null);
-  const [selectedNextTable, setSelectedNextTable] = useState<string>('C-2');
+  const [selectedNextTable, setSelectedNextTable] = useState<string>('');
   const [isSubmittingNextTable, setIsSubmittingNextTable] = useState(false);
+
+  // Only counters assigned to OTHER active employees by Admin (Issue 2)
+  const availableNextCounters = useMemo(() => {
+    const currentNorm = normalizeTableNumber(activeCounter);
+    const map = new Map<string, { counter: string; officerName: string }>();
+
+    (employees || []).forEach((emp) => {
+      if (emp.counterNumber && emp.isActive) {
+        const formatted = formatCounterDisplay(emp.counterNumber);
+        const norm = normalizeTableNumber(formatted);
+        if (norm && norm !== currentNorm && !map.has(formatted)) {
+          map.set(formatted, {
+            counter: formatted,
+            officerName: emp.name || 'Officer',
+          });
+        }
+      }
+    });
+
+    return Array.from(map.values()).sort((a, b) => a.counter.localeCompare(b.counter));
+  }, [employees, activeCounter]);
+
+  // Synchronize default selected next table when modal opens or counters change
+  useEffect(() => {
+    if (availableNextCounters.length > 0) {
+      if (!selectedNextTable || !availableNextCounters.some((c) => c.counter === selectedNextTable)) {
+        setSelectedNextTable(availableNextCounters[0].counter);
+      }
+    } else {
+      setSelectedNextTable('');
+    }
+  }, [availableNextCounters, selectedNextTable]);
 
   const empStorageKey = currentUser?.id ? `nagrikq_emp_services_${currentUser.id}` : 'nagrikq_emp_services_default';
 
@@ -101,10 +134,17 @@ export const EmployeeQueuePage: React.FC = () => {
   // Filter queue tokens based on counter and selected services
   const displayedTokens = useMemo(() => {
     const myNorm = normalizeTableNumber(activeCounter);
+    const hasOtherStaffAtC01 = (employees || []).some(
+      (e) => e.isActive && normalizeTableNumber(e.counterNumber) === '1' && normalizeTableNumber(e.counterNumber) !== myNorm
+    );
+
     return queueTokens.filter((token) => {
       const tokenNorm = normalizeTableNumber(token.counterNumber);
       const isMyCounter = tokenNorm === myNorm;
-      const isUnassignedCounter = !token.counterNumber || token.counterNumber === 'Unassigned';
+      const isUnassignedCounter =
+        !token.counterNumber ||
+        token.counterNumber === 'Unassigned' ||
+        (!hasOtherStaffAtC01 && tokenNorm === '1');
 
       // Counter & Service scope
       if (filterScope === 'MY_COUNTER_AND_SERVICES') {
@@ -125,7 +165,7 @@ export const EmployeeQueuePage: React.FC = () => {
 
       return true;
     });
-  }, [queueTokens, filterScope, activeCounter, selectedServiceIds, statusFilter]);
+  }, [queueTokens, filterScope, activeCounter, selectedServiceIds, statusFilter, employees]);
 
   const handleCallNext = async () => {
     if (selectedServiceIds.length === 0) {
@@ -605,6 +645,7 @@ export const EmployeeQueuePage: React.FC = () => {
             <select
               value={selectedNextTable}
               onChange={(e) => setSelectedNextTable(e.target.value)}
+              disabled={availableNextCounters.length === 0}
               style={{
                 width: '100%',
                 padding: '12px 14px',
@@ -613,19 +654,25 @@ export const EmployeeQueuePage: React.FC = () => {
                 fontSize: '1rem',
                 fontWeight: 700,
                 color: 'var(--color-primary-900)',
-                backgroundColor: 'white',
+                backgroundColor: availableNextCounters.length === 0 ? 'var(--color-neutral-100)' : 'white',
               }}
             >
-              {getCityTables(activeRoutingToken?.selectedCity || 'Rajkot')
-                .filter((t) => normalizeTableNumber(t) !== normalizeTableNumber(activeCounter))
-                .map((tbl) => (
-                  <option key={tbl} value={tbl}>
-                    Table {tbl}
+              {availableNextCounters.length === 0 ? (
+                <option value="" disabled>
+                  No other counters assigned to employees by Admin
+                </option>
+              ) : (
+                availableNextCounters.map((item) => (
+                  <option key={item.counter} value={item.counter}>
+                    Counter {item.counter} ({item.officerName})
                   </option>
-                ))}
+                ))
+              )}
             </select>
             <p style={{ margin: '8px 0 0 0', fontSize: '0.82rem', color: 'var(--color-neutral-500)' }}>
-              Note: The officer at the next table works physically outside NagrikQ. As soon as you confirm, the citizen will be notified to proceed to Table {selectedNextTable}, and Counter {activeCounter} will immediately become free.
+              {availableNextCounters.length > 0
+                ? `Note: The citizen will be transferred to Counter ${selectedNextTable}. The officer assigned by Admin to that counter will call the citizen, and Counter ${activeCounter} will immediately become free for your next citizen.`
+                : 'Note: No other counters are currently assigned to employees by the Admin. Add or assign employees in the Admin panel to enable multi-counter routing.'}
             </p>
           </div>
 
@@ -649,11 +696,11 @@ export const EmployeeQueuePage: React.FC = () => {
                   setIsSubmittingNextTable(false);
                 }
               }}
-              disabled={isSubmittingNextTable}
+              disabled={isSubmittingNextTable || !selectedNextTable}
               icon={<ArrowRight size={16} />}
               style={{ fontWeight: 800 }}
             >
-              Confirm & Direct to {selectedNextTable}
+              {selectedNextTable ? `Confirm & Direct to Counter ${selectedNextTable}` : 'No Other Assigned Counter'}
             </Button>
           </div>
         </div>

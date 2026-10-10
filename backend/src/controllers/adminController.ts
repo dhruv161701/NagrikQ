@@ -725,4 +725,3 @@ export const deleteEmployeeUser = async (
     res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: err.message } });
   }
 };
-

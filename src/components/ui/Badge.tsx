@@ -2,7 +2,7 @@ import React from 'react';
 
 export interface BadgeProps {
   children: React.ReactNode;
-  variant?: 'blue' | 'green' | 'orange' | 'red' | 'purple' | 'neutral' | 'info' | 'success' | 'warning' | 'danger';
+  variant?: 'blue' | 'green' | 'orange' | 'red' | 'purple' | 'neutral' | 'gray' | 'info' | 'success' | 'warning' | 'danger';
   size?: 'sm' | 'md';
   style?: React.CSSProperties;
   className?: string;
@@ -19,6 +19,11 @@ export const Badge: React.FC<BadgeProps> = ({
   let color = 'var(--color-text-primary)';
 
   switch (variant) {
+    case 'neutral':
+    case 'gray':
+      bg = 'var(--color-border-subtle)';
+      color = 'var(--color-text-primary)';
+      break;
     case 'blue':
     case 'info':
       bg = 'var(--color-border-subtle)';

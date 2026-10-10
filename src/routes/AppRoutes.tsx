@@ -43,7 +43,6 @@ import { AdminDashboardPage } from '../pages/admin/AdminDashboardPage';
 import { AdminEmployeesPage } from '../pages/admin/AdminEmployeesPage';
 import { AdminServicesPage } from '../pages/admin/AdminServicesPage';
 import { AdminChangeRequestsPage } from '../pages/admin/AdminChangeRequestsPage';
-import { AdminReportsPage } from '../pages/admin/AdminReportsPage';
 import { AdminAuditLogsPage } from '../pages/admin/AdminAuditLogsPage';
 
 // Super Admin Pages
@@ -51,7 +50,6 @@ import { SuperAdminDashboardPage } from '../pages/superadmin/SuperAdminDashboard
 import { SuperAdminServicesPage } from '../pages/superadmin/SuperAdminServicesPage';
 import { SuperAdminChangeRequestsPage } from '../pages/superadmin/SuperAdminChangeRequestsPage';
 import { SuperAdminAdminsPage } from '../pages/superadmin/SuperAdminAdminsPage';
-import { SuperAdminOfficesPage } from '../pages/superadmin/SuperAdminOfficesPage';
 import { SuperAdminAuditLogsPage } from '../pages/superadmin/SuperAdminAuditLogsPage';
 import { SuperAdminSettingsPage } from '../pages/superadmin/SuperAdminSettingsPage';
 
@@ -154,7 +152,7 @@ export const AppRoutes: React.FC = () => {
         <Route path="services" element={<AdminServicesPage />} />
         <Route path="document-requirements" element={<Navigate to="/admin/services" replace />} />
         <Route path="change-requests" element={<AdminChangeRequestsPage />} />
-        <Route path="reports" element={<AdminReportsPage />} />
+        <Route path="reports" element={<Navigate to="/admin/dashboard" replace />} />
         <Route path="audit-logs" element={<AdminAuditLogsPage />} />
       </Route>
 
@@ -172,7 +170,7 @@ export const AppRoutes: React.FC = () => {
         <Route path="services" element={<SuperAdminServicesPage />} />
         <Route path="change-requests" element={<SuperAdminChangeRequestsPage />} />
         <Route path="admins" element={<SuperAdminAdminsPage />} />
-        <Route path="offices" element={<SuperAdminOfficesPage />} />
+        <Route path="offices" element={<Navigate to="/super-admin/dashboard" replace />} />
         <Route path="audit-logs" element={<SuperAdminAuditLogsPage />} />
         <Route path="settings" element={<SuperAdminSettingsPage />} />
       </Route>

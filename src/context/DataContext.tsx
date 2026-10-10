@@ -18,6 +18,7 @@ import {
   DEFAULT_COUNTER_SEQUENCES,
   SERVICE_DOCUMENT_VALIDITY,
 } from '../data/indianLocations';
+import { formatCounterDisplay } from '../utils/cityTables';
 
 export interface IssueTokenOptions {
   officeId?: string;
@@ -43,6 +44,7 @@ interface DataContextType {
   refreshApplications: () => Promise<void>;
   refreshQueueTokens: () => Promise<void>;
   refreshChangeRequests: () => Promise<void>;
+  refreshAuditLogs: () => Promise<void>;
   getServiceById: (id: string) => Service | undefined;
   getUserActiveToken: (userId: string) => QueueToken | undefined;
   getUserQueueTokens: (userId: string) => QueueToken[];
@@ -217,6 +219,18 @@ const mapDBChangeRequestToChangeRequest = (row: any): ChangeRequest => ({
   reviewNote: row.review_note,
 });
 
+const mapDBAuditLogToAuditLog = (row: any): AuditLog => ({
+  id: row.id,
+  userId: row.actor_user_id || '',
+  userName: row.actor_user_name || 'System / Administrator',
+  userRole: (row.actor_user_role || 'admin') as any,
+  action: row.action || 'SYSTEM_EVENT',
+  entity: row.entity_type || 'System',
+  details: row.details || '',
+  timestamp: row.timestamp || row.created_at || new Date().toISOString(),
+  ipAddress: row.ip_address || '127.0.0.1',
+});
+
 export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { currentUser, isAuthenticated } = useAuth();
   const [, setTick] = useState(0);
@@ -227,6 +241,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [dbChangeRequests, setDbChangeRequests] = useState<ChangeRequest[]>([]);
   const [dbOffices, setDbOffices] = useState<Office[]>([]);
   const [dbEmployees, setDbEmployees] = useState<Employee[]>([]);
+  const [dbAuditLogs, setDbAuditLogs] = useState<AuditLog[]>([]);
 
   // 1. Fetch Services (Public - no auth required, include inactive only for superadmin)
   const fetchServicesFromAPI = useCallback(async () => {
@@ -448,26 +463,86 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // 6. Fetch Employees from authoritative Supabase staff_profiles
   const fetchEmployeesFromAPI = useCallback(async () => {
     try {
-      const { data, error } = await supabase.from('staff_profiles').select('*, offices(id, name)');
-      if (!error && Array.isArray(data) && data.length > 0) {
-        setDbEmployees(data.map((e: any) => ({
-          id: e.id,
-          employeeIdCode: e.employee_id || e.id.slice(0, 8),
-          name: e.full_name || 'Counter Staff',
-          email: e.email || '',
-          phone: e.phone || '',
-          officeId: e.office_id || '',
-          officeName: e.offices?.name || 'District Office',
-          counterNumber: e.counter_number || 'C-01',
-          isActive: e.is_active !== false,
-          assignedServiceIds: e.assigned_service_ids || [],
-          breakStartTime: e.break_start_time,
-          breakEndTime: e.break_end_time,
-          isOnBreak: e.is_on_break || false,
-        })));
+      const { data: staffList, error } = await supabase
+        .from('staff_profiles')
+        .select('*, offices(id, name)')
+        .eq('role', 'employee');
+
+      if (!error && Array.isArray(staffList) && staffList.length > 0) {
+        const userIds = staffList.map((e: any) => e.user_id || e.id).filter(Boolean);
+        const { data: profs } = await supabase
+          .from('profiles')
+          .select('id, full_name, email')
+          .in('id', userIds);
+
+        const nameMap: Record<string, string> = {};
+        const emailMap: Record<string, string> = {};
+        (profs || []).forEach((p: any) => {
+          nameMap[p.id] = p.full_name;
+          emailMap[p.id] = p.email;
+        });
+
+        setDbEmployees(staffList.map((e: any) => {
+          const uId = e.user_id || e.id;
+          return {
+            id: e.id,
+            employeeIdCode: e.employee_id || e.id.slice(0, 8),
+            name: nameMap[uId] || e.full_name || 'Counter Staff',
+            email: emailMap[uId] || e.email || '',
+            phone: e.phone || '',
+            officeId: e.office_id || '',
+            officeName: e.offices?.name || 'District Office',
+            counterNumber: e.counter_number ? formatCounterDisplay(e.counter_number) : 'C-01',
+            isActive: e.status === 'ACTIVE' && e.is_active !== false,
+            assignedServiceIds: e.assigned_service_ids || [],
+            breakStartTime: e.break_start_time,
+            breakEndTime: e.break_end_time,
+            isOnBreak: e.on_break || false,
+          };
+        }));
       }
     } catch (err) {
       console.warn('[DataContext] Failed to fetch employees:', err);
+    }
+  }, []);
+
+  // 6. Fetch Audit Logs (Admin & Super Admin)
+  const fetchAuditLogsFromAPI = useCallback(async () => {
+    try {
+      let logsData: any[] = [];
+      const token = await getAuthToken();
+      if (token) {
+        try {
+          const res = await fetch('/api/audit-logs', {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (res.ok) {
+            const json = await res.json();
+            if (json.success && Array.isArray(json.data)) {
+              logsData = json.data;
+            }
+          }
+        } catch (apiErr) {
+          console.warn('[DataContext] /api/audit-logs fetch failed, fallback to direct Supabase:', apiErr);
+        }
+      }
+
+      if (logsData.length === 0) {
+        const { data, error } = await supabase
+          .from('audit_logs')
+          .select('*')
+          .order('timestamp', { ascending: false })
+          .limit(100);
+        if (!error && data) {
+          logsData = data;
+        }
+      }
+
+      if (logsData.length > 0) {
+        setDbAuditLogs(logsData.map(mapDBAuditLogToAuditLog));
+      }
+    } catch (err) {
+      console.warn('[DataContext] Failed to fetch audit logs:', err);
     }
   }, []);
 
@@ -488,6 +563,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       fetchQueueTokensFromAPI(currentUser?.role);
       if (currentUser && ['admin', 'superadmin'].includes(currentUser.role)) {
         fetchChangeRequestsFromAPI(currentUser.role);
+        fetchAuditLogsFromAPI();
       }
     } else {
       setIsQueueTokensLoaded(true);
@@ -502,6 +578,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     fetchApplicationsFromAPI,
     fetchQueueTokensFromAPI,
     fetchChangeRequestsFromAPI,
+    fetchAuditLogsFromAPI,
   ]);
 
   // 2. Stable Supabase Realtime Channel (connects once, does not tear down on auth changes)
@@ -525,6 +602,9 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'service_change_requests' }, () => {
         if (authRef.current.isAuthenticated) fetchChangeRequestsFromAPI();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'audit_logs' }, () => {
+        if (authRef.current.isAuthenticated) fetchAuditLogsFromAPI();
       });
 
     channel.subscribe();
@@ -532,7 +612,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [fetchServicesFromAPI, fetchApplicationsFromAPI, fetchQueueTokensFromAPI, fetchChangeRequestsFromAPI]);
+  }, [fetchServicesFromAPI, fetchApplicationsFromAPI, fetchQueueTokensFromAPI, fetchChangeRequestsFromAPI, fetchAuditLogsFromAPI]);
 
   // 3. Fast polling fallback every 2000ms for continuous live data across all active pages & tabs
   useEffect(() => {
@@ -543,6 +623,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         fetchQueueTokensFromAPI(authRef.current.role);
         if (authRef.current.role && ['admin', 'superadmin'].includes(authRef.current.role)) {
           fetchChangeRequestsFromAPI(authRef.current.role);
+          fetchAuditLogsFromAPI();
         }
       }
     }, 2000);
@@ -550,7 +631,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => {
       clearInterval(interval);
     };
-  }, [fetchServicesFromAPI, fetchApplicationsFromAPI, fetchQueueTokensFromAPI, fetchChangeRequestsFromAPI]);
+  }, [fetchServicesFromAPI, fetchApplicationsFromAPI, fetchQueueTokensFromAPI, fetchChangeRequestsFromAPI, fetchAuditLogsFromAPI]);
 
   useEffect(() => {
     const unsub = mockRepository.subscribe(() => {
@@ -568,7 +649,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const applications = dbApplications;
   const queueTokens = isQueueTokensLoaded ? dbQueueTokens : [];
   const changeRequests = dbChangeRequests;
-  const auditLogs: AuditLog[] = [];
+  const auditLogs = dbAuditLogs;
   const notifications: NotificationItem[] = [];
 
   // SUBMIT APPLICATION
@@ -1061,6 +1142,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         refreshApplications: fetchApplicationsFromAPI,
         refreshQueueTokens: fetchQueueTokensFromAPI,
         refreshChangeRequests: fetchChangeRequestsFromAPI,
+        refreshAuditLogs: fetchAuditLogsFromAPI,
         getServiceById: (id) => services.find((s) => s.id === id),
         getUserActiveToken: (userId) => {
           if (!isQueueTokensLoaded) return undefined;
