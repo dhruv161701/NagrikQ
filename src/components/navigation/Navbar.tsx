@@ -3,7 +3,7 @@ import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useUI } from '../../context/UIContext';
 import { Button } from '../ui/Button';
-import { LayoutDashboard, Layers, LogOut } from 'lucide-react';
+import { LayoutDashboard, Layers, LogOut, Smartphone, Download } from 'lucide-react';
 
 export const Navbar: React.FC = () => {
   const { currentUser, activeRole, logout, isLoading } = useAuth();
@@ -91,6 +91,41 @@ export const Navbar: React.FC = () => {
 
         {/* Controls & Account */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+          {/* Download Mobile APK (Landing Page Navbar Only) */}
+          {location.pathname === '/' && (
+            <a
+              href="/NagrikQ.apk"
+              download="NagrikQ.apk"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '8px',
+                padding: '7px 16px',
+                borderRadius: '8px',
+                fontSize: '0.86rem',
+                fontWeight: 700,
+                color: '#ffffff',
+                backgroundColor: 'var(--color-primary)',
+                textDecoration: 'none',
+                boxShadow: '0 2px 6px rgba(199, 119, 32, 0.25)',
+                transition: 'all 0.15s ease',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.transform = 'translateY(-1px)';
+                e.currentTarget.style.boxShadow = '0 4px 10px rgba(199, 119, 32, 0.35)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.transform = 'translateY(0)';
+                e.currentTarget.style.boxShadow = '0 2px 6px rgba(199, 119, 32, 0.25)';
+              }}
+              title="Download NagrikQ Citizen Mobile App (Android APK)"
+            >
+              <Smartphone size={16} />
+              <span>Download APK</span>
+              <Download size={14} style={{ opacity: 0.9 }} />
+            </a>
+          )}
+
           {/* Mode Switcher pill */}
           <button
             onClick={() => setUIMode(uiMode === 'modern' ? 'simple' : 'modern')}
